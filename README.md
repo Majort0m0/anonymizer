@@ -114,9 +114,14 @@ uvicorn app.server:app --host 127.0.0.1 --port 8765
 
 ## Installierbare App (macOS / Windows / Linux)
 
-Baut ein natives Paket (kein `python`/`.venv` nötig zum Ausführen) über
-PyInstaller. Vorher `uv pip install -r requirements-build.txt` (im aktivierten
-venv) einmalig ausführen.
+**Fertige Installer:** [aktuellste Version unter GitHub Releases](https://github.com/Majort0m0/anonymizer/releases/latest)
+(`.dmg` für macOS, `.exe` für Windows, `.AppImage` für Linux) — kein
+Python/`.venv` nötig, direkt herunterladen und starten.
+
+Alternativ selbst bauen: ein natives Paket (ebenfalls kein `python`/`.venv`
+nötig zum *Ausführen*) über PyInstaller. Vorher
+`uv pip install -r requirements-build.txt` (im aktivierten venv) einmalig
+ausführen.
 
 | Plattform | Befehl | Ergebnis |
 | --- | --- | --- |
