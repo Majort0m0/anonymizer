@@ -37,6 +37,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import DEFAULT_LANGUAGE, OUTPUT_DIR, SPACY_MODELS
 from app.pipeline.pipeline import PendingState, analyze, analyze_file, finalize
+from app.pipeline.render_markdown import render_summary, render_transcript
 from app.pipeline.setup_check import attempt_auto_install, check_dependencies
 from app.schemas import (
     DownloadableFile,
@@ -45,6 +46,7 @@ from app.schemas import (
     PendingAnalysis,
     PipelineOptions,
     PipelineResult,
+    ReplaceTextRequest,
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
@@ -218,9 +220,76 @@ def finalize_route(payload: FinalizeRequest) -> JSONResponse:
         result = PipelineResult(
             source_filename=output.source_filename,
             detected_language=output.detected_language,
+            deep_check_enabled=output.deep_check_enabled,
             anonymized_transcript=output.anonymized_transcript,
             summary=output.summary,
             pii_audit=output.pii_audit,
+            downloads=downloads,
+        )
+        return JSONResponse(result.model_dump())
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+
+_MARKDOWN_DOWNLOAD_LABELS = {"Transkript (Markdown)", "Zusammenfassung (Markdown)"}
+
+
+@app.post("/api/replace-text")
+def replace_text_route(payload: ReplaceTextRequest) -> JSONResponse:
+    """Manual post-finalize find/replace (e.g. fixing a word an audio
+    transcription misheard). Takes the transcript/summary text the client
+    already holds — no server-side token/state involved — applies a plain
+    literal-text substitution, and re-renders + re-saves the markdown so the
+    downloads stay in sync with what's on screen. Any non-markdown download
+    (a structured-format xlsx/csv/json/ods copy) is passed through unchanged;
+    this endpoint never touches it."""
+    if not payload.search:
+        return JSONResponse(status_code=400, content={"error": "Bitte einen Suchbegriff angeben."})
+
+    try:
+        flags = 0 if payload.match_case else re.IGNORECASE
+        pattern = re.compile(re.escape(payload.search), flags)
+        count = 0 if payload.replace_all else 1
+
+        def apply_replace(text: str | None) -> str | None:
+            if text is None:
+                return None
+            return pattern.sub(lambda m: payload.replacement, text, count=count)
+
+        new_transcript = apply_replace(payload.anonymized_transcript)
+        new_summary = apply_replace(payload.summary)
+
+        downloads = [d for d in payload.downloads if d.label not in _MARKDOWN_DOWNLOAD_LABELS]
+
+        if new_transcript is not None:
+            markdown = render_transcript(
+                source_filename=payload.source_filename,
+                detected_language=payload.detected_language,
+                deep_check_enabled=payload.deep_check_enabled,
+                anonymized_transcript=new_transcript,
+                pii_audit=payload.pii_audit,
+            )
+            filename = _save_text(payload.source_filename, "-anonymisiert", ".md", markdown)
+            downloads.append(DownloadableFile(label="Transkript (Markdown)", filename=filename))
+
+        if new_summary is not None:
+            markdown = render_summary(
+                source_filename=payload.source_filename,
+                detected_language=payload.detected_language,
+                deep_check_enabled=payload.deep_check_enabled,
+                summary=new_summary,
+                pii_audit=payload.pii_audit,
+            )
+            filename = _save_text(payload.source_filename, "-zusammenfassung", ".md", markdown)
+            downloads.append(DownloadableFile(label="Zusammenfassung (Markdown)", filename=filename))
+
+        result = PipelineResult(
+            source_filename=payload.source_filename,
+            detected_language=payload.detected_language,
+            deep_check_enabled=payload.deep_check_enabled,
+            anonymized_transcript=new_transcript,
+            summary=new_summary,
+            pii_audit=payload.pii_audit,
             downloads=downloads,
         )
         return JSONResponse(result.model_dump())

@@ -62,6 +62,7 @@ class PendingState:
 class FinalizeOutput:
     source_filename: str
     detected_language: str
+    deep_check_enabled: bool
     anonymized_transcript: str | None
     summary: str | None
     pii_audit: list[PiiEntity]
@@ -236,6 +237,7 @@ def finalize(
     return FinalizeOutput(
         source_filename=state.source_filename,
         detected_language=state.detected_language,
+        deep_check_enabled=state.deep_check_requested,
         anonymized_transcript=anonymized_transcript,
         summary=summary,
         pii_audit=pii_audit,

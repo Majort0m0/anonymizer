@@ -27,6 +27,9 @@ Lässt eine erkannte Kategorie unangetastet im Ergebnistext stehen, statt sie zu
 **Anonymisierungs-Protokoll**
 Die Tabelle am Ende jeder Ausgabedatei listet auf, welche Kategorien wie oft erkannt und ersetzt wurden — damit das Ergebnis nachvollziehbar bleibt, statt "unsichtbar" verändert zu werden.
 
+**Suchen & Ersetzen**
+Erscheint beim Ergebnis und korrigiert einzelne Begriffe nachträglich im Transkript und in der Zusammenfassung — z. B. ein Wort, das bei einer Audio-Transkription falsch verstanden wurde. "Ersetzen" ändert das erste Vorkommen, "Alle ersetzen" jedes Vorkommen; optional mit Berücksichtigung von Groß-/Kleinschreibung. Die Markdown-Downloads werden danach automatisch neu erzeugt; eine tabellarische Ausgabedatei (Excel/CSV/JSON/ODS) bleibt davon unberührt.
+
 ## Unterstützte Formate & Downloads
 
 Text/Dokumente (`.txt`, `.md`, `.docx`, `.pdf`), Tabellen (`.xlsx`/`.xls`, `.csv`, `.json`, `.ods`), OpenDocument-Text (`.odt`, `.odp`), Audio (`.mp3`, `.wav`, `.m4a` u. a.) und Text aus der Zwischenablage.

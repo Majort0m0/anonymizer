@@ -24,8 +24,8 @@ def main() -> None:
     webview.create_window(
         "Anonymizer",
         f"http://{SERVER_HOST}:{SERVER_PORT}",
-        width=1100,
-        height=820,
+        width=1180,
+        height=900,
         min_size=(800, 600),
     )
     webview.start()

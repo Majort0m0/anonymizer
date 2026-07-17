@@ -194,6 +194,24 @@ frontend.
 name already exists in `OUTPUT_DIR` — re-processing the same source file never
 silently overwrites a previous run's output.
 
+**Post-finalize find & replace** (`app/server.py`'s `/api/replace-text`,
+`app/web/static/app.js`'s `performReplace()`) — a manual correction pass for
+text the pipeline got right *structurally* but wrong *lexically* (most
+commonly: a word `faster-whisper` misheard in an audio transcription).
+Deliberately NOT part of the analyze/finalize token flow — it operates on
+whatever transcript/summary text the client currently has in memory
+(`currentResult`, round-tripped as `ReplaceTextRequest`'s
+`anonymized_transcript`/`summary` fields) via a plain `re.escape()`d literal
+substitution, not a re-run of detection. Single "Ersetzen" applies `count=1`
+independently to the transcript AND the summary — one substitution per
+*document*, not one substitution total, so a term appearing in both gets
+corrected in both from a single click; "Alle ersetzen" is `count=0`
+(unlimited). Re-renders and re-saves the markdown output(s) via the same
+`render_transcript()`/`render_summary()` `finalize()` uses, so downloads stay
+in sync with on-screen corrections — any non-markdown download (a
+structured-format xlsx/csv/json/ods copy) is passed through unchanged in the
+response, since this endpoint never re-parses that original file's bytes.
+
 **Route handlers that call blocking pipeline code (Presidio, spaCy, Ollama HTTP,
 subprocess installs) are plain `def`, not `async def`** — FastAPI runs sync path
 operations in a worker thread automatically. An `async def` route that calls
@@ -251,7 +269,21 @@ consequences worth knowing before touching this area:
 - The grid collapses to a single stacked column below `880px` (see the
   `@media` query on `.app-layout`) for narrow windows.
 
-## Packaging (native installers + Docker)
+**The page itself never scrolls — `body` is locked to `height: 100vh` with
+`overflow: hidden`.** Only `.sidebar` and `.main-content` have
+`overflow-y: auto` and scroll independently of each other. This was a direct
+fix for a reported bug: the sidebar's own content (dropzone, options,
+analyze button, system status) is taller than short windows, and with a
+page-level scroll, scrolling down to reach the analyze button also scrolled
+the header out of view. Now the header/footer stay fixed and only the
+sidebar's own area scrolls if it doesn't fit — and everything in the sidebar
+(card padding, dropzone size, option descriptions, hint text) was
+deliberately kept compact specifically so the analyze button fits without
+even that internal scroll on ordinary laptop-window heights (~800px+); don't
+casually add back verbose copy or generous padding in the sidebar without
+checking it still fits around that height. This is desktop/laptop-landscape
+only by explicit product decision — no attempt is made to support portrait
+or phone-sized viewports.
 
 `anonymizer.spec` is the single PyInstaller spec for all three OSes — its
 `Analysis`/`EXE`/`COLLECT` blocks are platform-generic (PyInstaller resolves

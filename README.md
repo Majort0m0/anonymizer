@@ -41,6 +41,13 @@ Modelle (kein Cloud-API-Aufruf).
   wird automatisch " (2)", " (3)" usw. angehängt, statt die vorherige Datei
   zu überschreiben. Legacy `.xls` wird dabei als `.xlsx` ausgegeben (siehe
   unten).
+- **Suchen & Ersetzen**: nach der Anonymisierung lassen sich einzelne Begriffe
+  im Transkript/in der Zusammenfassung nachträglich korrigieren — etwa ein
+  von der Audio-Transkription falsch verstandenes Wort — wahlweise einzeln
+  oder für alle Vorkommen auf einmal, mit optionaler Berücksichtigung von
+  Groß-/Kleinschreibung. Die betroffenen Markdown-Downloads werden dabei neu
+  erzeugt; eine tabellarische Ausgabedatei (xlsx/csv/json/ods) bleibt davon
+  unberührt.
 
 Die Modul-Verträge stehen in `app/schemas.py` (Datentypen) und `app/config.py`
 (Modelle, Pfade, Regionen).

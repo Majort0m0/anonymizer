@@ -24,12 +24,20 @@
     <section id="input-card" class="card" aria-labelledby="input-heading">
       <h2 id="input-heading">1. Eingabe</h2>
 
-      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-describedby="dropzone-hint">
-        <div class="dropzone-icon" aria-hidden="true">&#8615;</div>
-        <p class="dropzone-text">Datei hierher ziehen oder klicken, um sie auszuwählen</p>
-        <p id="dropzone-hint" class="dropzone-hint">.txt, .md, .docx, .pdf, .xlsx, .csv, .json, .odt/.ods/.odp, .mp3, .wav, .m4a &hellip;</p>
-        <input type="file" id="file-input" class="visually-hidden" tabindex="-1"
-               accept=".txt,.md,.docx,.doc,.pdf,.xlsx,.xlsm,.xls,.csv,.json,.odt,.ods,.odp,.mp3,.wav,.m4a,.ogg,.flac,.aac,.wma,.opus,.aiff,.aif,.caf,.webm">
+      <div id="input-chooser">
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-describedby="dropzone-hint">
+          <div class="dropzone-icon" aria-hidden="true">&#8615;</div>
+          <p class="dropzone-text">Datei hierher ziehen oder klicken, um sie auszuwählen</p>
+          <p id="dropzone-hint" class="dropzone-hint">.txt, .md, .docx, .pdf, .xlsx, .csv, .json, .odt/.ods/.odp, .mp3, .wav, .m4a &hellip;</p>
+          <input type="file" id="file-input" class="visually-hidden" tabindex="-1"
+                 accept=".txt,.md,.docx,.doc,.pdf,.xlsx,.xlsm,.xls,.csv,.json,.odt,.ods,.odp,.mp3,.wav,.m4a,.ogg,.flac,.aac,.wma,.opus,.aiff,.aif,.caf,.webm">
+        </div>
+
+        <div class="divider"><span>oder</span></div>
+
+        <button type="button" id="clipboard-btn" class="secondary-btn">
+          Aus Zwischenablage einfügen
+        </button>
       </div>
 
       <div id="file-chosen" class="file-chosen hidden">
@@ -38,15 +46,9 @@
         <button type="button" id="file-clear-btn" class="link-btn">Entfernen</button>
       </div>
 
-      <div class="divider"><span>oder</span></div>
-
-      <button type="button" id="clipboard-btn" class="secondary-btn">
-        Aus Zwischenablage einfügen
-      </button>
-
       <div id="clipboard-preview-wrap" class="clipboard-preview-wrap hidden">
         <label for="clipboard-preview">Eingefügter Text (bearbeitbar)</label>
-        <textarea id="clipboard-preview" class="clipboard-preview" rows="8"></textarea>
+        <textarea id="clipboard-preview" class="clipboard-preview" rows="5"></textarea>
         <button type="button" id="clipboard-clear-btn" class="link-btn">Verwerfen</button>
       </div>
     </section>
@@ -60,7 +62,7 @@
           <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
           <span class="toggle-label">
             Tiefencheck (LLM-Prüfung)
-            <span class="toggle-desc">Zusätzliche, langsamere Verifizierung der Anonymisierung durch ein lokales Sprachmodell.</span>
+            <span class="toggle-desc">Zusätzliche, langsamere Prüfung per Sprachmodell.</span>
           </span>
         </label>
       </div>
@@ -87,7 +89,7 @@
     <section id="action-card" class="card action-card">
       <h2 class="visually-hidden">3. Analysieren</h2>
       <button type="button" id="analyze-btn" class="primary-btn" disabled>Analysieren</button>
-      <p id="analyze-hint" class="hint">Bitte zuerst eine Datei auswählen oder Text aus der Zwischenablage einfügen.</p>
+      <p id="analyze-hint" class="hint">Bitte zuerst eine Datei oder Zwischenablage wählen.</p>
 
       <div id="loading" class="loading hidden">
         <div class="spinner" aria-hidden="true"></div>
@@ -171,6 +173,30 @@
         </div>
       </div>
 
+      <button type="button" id="find-replace-toggle" class="secondary-btn find-replace-toggle-btn"
+              aria-expanded="false" aria-controls="find-replace-panel">
+        Suchen &amp; Ersetzen
+      </button>
+
+      <div id="find-replace-panel" class="find-replace-panel hidden">
+        <p class="find-replace-intro">
+          Einzelne Begriffe korrigieren, die z.&nbsp;B. bei der Audio-Transkription falsch verstanden wurden.
+        </p>
+        <div class="find-replace-row">
+          <input type="text" id="find-replace-search" class="find-replace-input" placeholder="Suchen nach…">
+          <input type="text" id="find-replace-replacement" class="find-replace-input" placeholder="Ersetzen durch…">
+        </div>
+        <label class="find-replace-case">
+          <input type="checkbox" id="find-replace-case-toggle">
+          Groß-/Kleinschreibung beachten
+        </label>
+        <div class="find-replace-actions">
+          <button type="button" id="find-replace-one-btn" class="secondary-btn">Ersetzen</button>
+          <button type="button" id="find-replace-all-btn" class="primary-btn">Alle ersetzen</button>
+        </div>
+        <p id="find-replace-status" class="hint find-replace-status hidden"></p>
+      </div>
+
       <div id="result-downloads" class="result-downloads"></div>
     </section>
 
@@ -242,6 +268,15 @@
             Die Tabelle am Ende jeder Ausgabedatei listet auf, welche Kategorien wie oft erkannt und
             ersetzt wurden — damit das Ergebnis nachvollziehbar bleibt, statt "unsichtbar" verändert
             zu werden.
+          </dd>
+          <dt>Suchen &amp; Ersetzen</dt>
+          <dd>
+            Erscheint beim Ergebnis und korrigiert einzelne Begriffe nachträglich im Transkript und
+            in der Zusammenfassung — z.&nbsp;B. ein Wort, das bei einer Audio-Transkription falsch
+            verstanden wurde. "Ersetzen" ändert das erste Vorkommen, "Alle ersetzen" jedes Vorkommen;
+            optional mit Berücksichtigung von Groß-/Kleinschreibung. Die Markdown-Downloads werden
+            danach automatisch neu erzeugt; eine tabellarische Ausgabedatei (Excel/CSV/JSON/ODS)
+            bleibt davon unberührt.
           </dd>
         </dl>
       </section>

@@ -100,10 +100,36 @@ class DownloadableFile(BaseModel):
 class PipelineResult(BaseModel):
     source_filename: str
     detected_language: str
+    deep_check_enabled: bool = False
     anonymized_transcript: Optional[str] = None
     summary: Optional[str] = None
     pii_audit: list[PiiEntity] = Field(default_factory=list)
     downloads: list[DownloadableFile] = Field(default_factory=list)
+
+
+class ReplaceTextRequest(BaseModel):
+    """Manual post-finalize find/replace — e.g. fixing a word an audio
+    transcription misheard. Operates on the already-finalized transcript/
+    summary text the client already holds (from the finalize or a previous
+    replace response), not on any server-side token/state; re-renders and
+    re-saves the markdown output(s) so downloads stay in sync with on-screen
+    corrections. Does not touch a structured-format (xlsx/csv/json/ods)
+    output, if one exists — see CLAUDE.md."""
+
+    source_filename: str
+    detected_language: str
+    deep_check_enabled: bool = False
+    anonymized_transcript: Optional[str] = None
+    summary: Optional[str] = None
+    pii_audit: list[PiiEntity] = Field(default_factory=list)
+    # Passed through so a structured-format download (xlsx/csv/json/ods),
+    # which this endpoint does not regenerate, isn't silently dropped from
+    # the response — only the markdown entries get replaced with fresh ones.
+    downloads: list[DownloadableFile] = Field(default_factory=list)
+    search: str
+    replacement: str = ""
+    match_case: bool = False
+    replace_all: bool = True
 
 
 class DependencyStatus(BaseModel):

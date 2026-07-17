@@ -34,6 +34,7 @@ const CATEGORY_LABELS = {
 
 // --- Phase 1: input ---------------------------------------------------------
 
+const inputChooser = document.getElementById("input-chooser");
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("file-input");
 const fileChosen = document.getElementById("file-chosen");
@@ -83,6 +84,22 @@ const resultSummary = document.getElementById("result-summary");
 const resultDownloads = document.getElementById("result-downloads");
 const resultNewDocumentBtn = document.getElementById("result-new-document-btn");
 
+// Holds the current PipelineResult (from finalize or a previous replace) so
+// find/replace requests have the text + metadata they need to send back —
+// see performReplace().
+let currentResult = null;
+
+// --- Find & replace ------------------------------------------------------
+
+const findReplaceToggle = document.getElementById("find-replace-toggle");
+const findReplacePanel = document.getElementById("find-replace-panel");
+const findReplaceSearch = document.getElementById("find-replace-search");
+const findReplaceReplacement = document.getElementById("find-replace-replacement");
+const findReplaceCaseToggle = document.getElementById("find-replace-case-toggle");
+const findReplaceOneBtn = document.getElementById("find-replace-one-btn");
+const findReplaceAllBtn = document.getElementById("find-replace-all-btn");
+const findReplaceStatus = document.getElementById("find-replace-status");
+
 // --- Help modal ---------------------------------------------------------------
 
 const helpBtn = document.getElementById("help-btn");
@@ -109,10 +126,17 @@ function hasClipboardText() {
   return clipboardPreview.value.trim().length > 0;
 }
 
+// Once a file or clipboard text is chosen, the dropzone/"oder"/clipboard-button
+// picker UI has served its purpose and just eats vertical space that the
+// options/analyze cards below need (this used to force scrolling to reach
+// "Analysieren" on shorter windows) — collapse it and rely on the compact
+// file-chosen/clipboard-preview-wrap rows to show what's selected instead.
+// Clearing the selection (or restarting) brings the picker back.
 function updateAnalyzeButtonState() {
   const ready = selectedFile !== null || hasClipboardText();
   analyzeBtn.disabled = !ready;
   analyzeHint.classList.toggle("hidden", ready);
+  inputChooser.classList.toggle("hidden", ready);
 }
 
 function isAcceptedFile(file) {
@@ -180,9 +204,15 @@ function hideEmptyState() {
 function resetToInputPhase() {
   currentToken = null;
   currentCategories = [];
+  currentResult = null;
   reviewList.innerHTML = "";
   reviewCard.classList.add("hidden");
   resultCard.classList.add("hidden");
+  findReplaceSearch.value = "";
+  findReplaceReplacement.value = "";
+  setFindReplaceStatus("");
+  findReplacePanel.classList.add("hidden");
+  findReplaceToggle.setAttribute("aria-expanded", "false");
   clearSelectedFile();
   clearClipboardText();
   hideError();
@@ -565,6 +595,8 @@ finalizeBtn.addEventListener("click", async () => {
 // --- Phase 3: result ---------------------------------------------------------
 
 function renderResult(result) {
+  currentResult = result;
+
   piiAuditList.innerHTML = "";
   if (result.pii_audit && result.pii_audit.length > 0) {
     for (const entity of result.pii_audit) {
@@ -610,6 +642,124 @@ function renderResult(result) {
 
   resultCard.classList.remove("hidden");
   resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// --- Find & replace ---------------------------------------------------------
+//
+// Fixes individual words after the fact — e.g. a term an audio transcription
+// misheard. "Ersetzen" replaces just the next remaining occurrence (click it
+// again for the one after that); "Alle ersetzen" replaces every occurrence
+// in one go. Each action round-trips to the server so the downloadable
+// markdown files stay in sync with what's shown on screen; any non-markdown
+// download (a structured-format copy) is sent along untouched so it isn't
+// silently dropped from the list.
+
+findReplaceToggle.addEventListener("click", () => {
+  const expanded = findReplaceToggle.getAttribute("aria-expanded") === "true";
+  const next = !expanded;
+  findReplaceToggle.setAttribute("aria-expanded", String(next));
+  findReplacePanel.classList.toggle("hidden", !next);
+  if (next) {
+    findReplaceSearch.focus();
+  }
+});
+
+function countOccurrences(text, search, matchCase) {
+  if (!text || !search) return 0;
+  const haystack = matchCase ? text : text.toLowerCase();
+  const needle = matchCase ? search : search.toLowerCase();
+  let count = 0;
+  let pos = 0;
+  while (true) {
+    const idx = haystack.indexOf(needle, pos);
+    if (idx === -1) break;
+    count += 1;
+    pos = idx + needle.length;
+  }
+  return count;
+}
+
+function setFindReplaceStatus(message) {
+  findReplaceStatus.textContent = message;
+  findReplaceStatus.classList.toggle("hidden", !message);
+}
+
+async function performReplace(replaceAll) {
+  if (!currentResult) return;
+
+  const search = findReplaceSearch.value;
+  if (!search.trim()) {
+    setFindReplaceStatus("Bitte einen Suchbegriff eingeben.");
+    return;
+  }
+
+  const matchCase = findReplaceCaseToggle.checked;
+  const remainingBefore =
+    countOccurrences(currentResult.anonymized_transcript, search, matchCase) +
+    countOccurrences(currentResult.summary, search, matchCase);
+  if (remainingBefore === 0) {
+    setFindReplaceStatus("Kein Treffer gefunden.");
+    return;
+  }
+
+  findReplaceOneBtn.disabled = true;
+  findReplaceAllBtn.disabled = true;
+  setFindReplaceStatus("Wird angewendet…");
+
+  try {
+    const response = await fetch("/api/replace-text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_filename: currentResult.source_filename,
+        detected_language: currentResult.detected_language,
+        deep_check_enabled: currentResult.deep_check_enabled,
+        anonymized_transcript: currentResult.anonymized_transcript,
+        summary: currentResult.summary,
+        pii_audit: currentResult.pii_audit,
+        downloads: currentResult.downloads,
+        search,
+        replacement: findReplaceReplacement.value,
+        match_case: matchCase,
+        replace_all: replaceAll,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setFindReplaceStatus(data.error || "Fehler beim Ersetzen.");
+      return;
+    }
+
+    renderResult(data);
+
+    const remainingAfter =
+      countOccurrences(data.anonymized_transcript, search, matchCase) +
+      countOccurrences(data.summary, search, matchCase);
+    setFindReplaceStatus(
+      remainingAfter > 0
+        ? `Ersetzt. Noch ${remainingAfter} weitere${remainingAfter === 1 ? "r" : ""} Treffer.`
+        : "Ersetzt. Keine weiteren Treffer."
+    );
+  } catch (err) {
+    setFindReplaceStatus("Verbindung zum lokalen Server fehlgeschlagen.");
+  } finally {
+    findReplaceOneBtn.disabled = false;
+    findReplaceAllBtn.disabled = false;
+  }
+}
+
+findReplaceOneBtn.addEventListener("click", () => performReplace(false));
+findReplaceAllBtn.addEventListener("click", () => performReplace(true));
+
+for (const input of [findReplaceSearch, findReplaceReplacement]) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      performReplace(true);
+    }
+  });
 }
 
 // --- System status --------------------------------------------------------

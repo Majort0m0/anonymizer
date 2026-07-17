@@ -54,20 +54,39 @@ body {
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* App-shell layout, not a scrolling document: the whole page is locked to
+     the viewport height and never scrolls itself. Only .sidebar and
+     .main-content (below) scroll internally, independently of each other,
+     so the header/footer and whichever column DOES fit stay put — this is
+     what makes the layout adapt to the actual window size instead of
+     pushing later content below the fold on shorter windows. Desktop/laptop
+     landscape only, by design; small/portrait viewports are out of scope. */
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .page {
   max-width: 1360px;
+  width: 100%;
   margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
+  padding: 0.85rem 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 0.6rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-header {
+  flex-shrink: 0;
 }
 
 .app-header h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.6rem;
+  margin: 0 0 0.2rem;
+  font-size: 1.4rem;
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -75,42 +94,53 @@ body {
 .subtitle {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 /* Two-column desktop layout: a persistent control sidebar (input, options,
    action, system status) and a wider main content column for whatever the
    current step produces (category review, then the result) — makes far
    better use of a desktop/laptop-width window than a single centered
-   mobile-style column. Collapses to a single stacked column below
-   --sidebar-breakpoint for narrow windows. */
+   mobile-style column. Both columns stretch to the same height and scroll
+   independently (see body's comment above) rather than the page itself
+   growing taller than the window. Collapses to a single stacked column
+   below the breakpoint for narrow windows. */
 .app-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  align-items: start;
-  gap: 1.75rem;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 1.5rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  position: sticky;
-  top: 1.5rem;
+  gap: 0.65rem;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.4rem;
 }
 
 .main-content {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.4rem;
 }
 
 .empty-state {
   color: var(--text-muted);
   font-size: 0.9rem;
   text-align: center;
-  padding: 3rem 1.5rem;
+  padding: 2.5rem 1.5rem;
 }
 
 .empty-state p {
@@ -120,10 +150,7 @@ body {
 @media (max-width: 880px) {
   .app-layout {
     grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    position: static;
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr);
   }
 }
 
@@ -132,12 +159,13 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 1.5rem;
+  padding: 0.9rem 1.1rem;
+  flex-shrink: 0;
 }
 
 .card h2 {
-  margin: 0 0 1rem;
-  font-size: 1.05rem;
+  margin: 0 0 0.75rem;
+  font-size: 1.02rem;
   font-weight: 600;
 }
 
@@ -168,7 +196,7 @@ body {
 .dropzone {
   border: 2px dashed var(--border);
   border-radius: var(--radius);
-  padding: 2rem 1rem;
+  padding: 0.75rem 1rem;
   text-align: center;
   cursor: pointer;
   transition: border-color 0.15s ease, background-color 0.15s ease;
@@ -191,9 +219,9 @@ body {
 }
 
 .dropzone-icon {
-  font-size: 1.75rem;
+  font-size: 1.4rem;
   color: var(--accent);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
 }
 
 .dropzone-text {
@@ -237,7 +265,7 @@ body {
   text-align: center;
   color: var(--text-muted);
   font-size: 0.8rem;
-  margin: 1.1rem 0;
+  margin: 0.6rem 0;
 }
 
 .divider::before,
@@ -362,7 +390,7 @@ body {
 .option-row {
   border: none;
   padding: 0;
-  margin: 0 0 1.25rem;
+  margin: 0 0 0.85rem;
 }
 
 .option-row:last-child {
@@ -370,7 +398,7 @@ body {
 }
 
 .option-row legend {
-  padding: 0 0 0.5rem;
+  padding: 0 0 0.35rem;
   font-weight: 500;
   font-size: 0.9rem;
 }
@@ -483,13 +511,14 @@ body {
 .action-card {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .hint {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
   text-align: center;
 }
 
@@ -734,6 +763,83 @@ body {
   text-align: center;
 }
 
+/* Find & replace */
+
+.find-replace-toggle-btn {
+  width: auto;
+  align-self: flex-start;
+  flex-shrink: 0;
+  white-space: nowrap;
+  margin-bottom: 1rem;
+}
+
+.find-replace-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.find-replace-intro {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.find-replace-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.find-replace-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.find-replace-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.find-replace-case {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.find-replace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.find-replace-actions .secondary-btn,
+.find-replace-actions .primary-btn {
+  width: auto;
+  flex: 1 1 160px;
+}
+
+.find-replace-status {
+  margin: 0;
+  text-align: left;
+}
+
 /* Status panel */
 
 .status-card {
@@ -858,6 +964,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+  flex-shrink: 0;
+  padding-top: 0.25rem;
 }
 
 .app-footer p {
