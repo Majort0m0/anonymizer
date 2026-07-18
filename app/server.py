@@ -184,6 +184,7 @@ class _Job:
     plan: list[tuple[str, int]] = field(default_factory=list)
     percent: float = 0.0
     eta_seconds: float | None = None
+    overtime: bool = False
     result: dict | None = None
     _last_event_time: float | None = None
     created_at: float = field(default_factory=time.monotonic)
@@ -235,6 +236,7 @@ _STAGE_LABELS = {
     "redact": "Anonymisierung wird angewendet",
     "deep_check_apply": "Tiefencheck-Ergebnisse werden angewendet",
     "deep_check_missed": "LLM-Nachkontrolle läuft",
+    "deep_check_locations": "LLM-Ortsnamen-Kontrolle läuft",
     "summarize": "Zusammenfassung wird erstellt",
     "render": "Dokument wird erstellt",
     "structured_rewrite": "Tabellen-Kopie wird erstellt",
@@ -245,12 +247,17 @@ _STAGE_LABELS = {
 # the pipeline without a matching default in progress_calibration.py).
 _FALLBACK_STAGE_SECONDS = 5.0
 
+# How far past the calibrated estimate a stage's current unit has to run
+# before the UI switches from a (by then likely-wrong) numeric ETA to an
+# honest "taking longer than expected" state.
+_OVERTIME_FACTOR = 1.5
+
 # Stages whose duration depends on which Ollama model is active — mixing
 # measurements from e.g. gemma4:e4b (fast) and gemma4:12b (much slower) into
 # one shared average made the ETA swing wildly and appear to "reset" whenever
 # a chunk finished much faster/slower than a stale, other-model-trained
 # estimate expected (observed directly: switching models between test runs).
-_MODEL_DEPENDENT_STAGES = {"deep_check_find", "deep_check_missed", "summarize"}
+_MODEL_DEPENDENT_STAGES = {"deep_check_find", "deep_check_missed", "deep_check_locations", "summarize"}
 
 
 def _calibration_key(stage: str, model: str) -> str:
@@ -269,12 +276,18 @@ def _stage_duration(durations: dict[str, float], stage: str, model: str) -> floa
     return durations.get(stage, _FALLBACK_STAGE_SECONDS)
 
 
-def _stage_label(stage: str | None, current: int, total: int) -> str:
+def _stage_label(stage: str | None, current: int, total: int, overtime: bool = False) -> str:
     if stage is None:
         return "Wird vorbereitet…"
     label = _STAGE_LABELS.get(stage, stage)
     if total > 1:
-        return f"{label} (Teil {max(current, 1)}/{total})"
+        label = f"{label} (Teil {max(current, 1)}/{total})"
+    if overtime:
+        # The calibrated estimate for this stage has already been exceeded —
+        # showing a stale "<1 Sek." for minutes on end (which the estimate
+        # alone would otherwise do) reads as broken/frozen. Say so honestly
+        # instead of pretending we still know how much longer this will take.
+        label += " — dauert länger als erwartet…"
     return label
 
 
@@ -310,6 +323,7 @@ def _recompute_progress(job: _Job) -> None:
     if not job.plan:
         job.percent = 0.0
         job.eta_seconds = None
+        job.overtime = False
         return
 
     durations = get_stage_durations()
@@ -317,6 +331,7 @@ def _recompute_progress(job: _Job) -> None:
     total_seconds = 0.0
     done_seconds = 0.0
     reached_current = False
+    current_overtime = False
     for name, planned_units in job.plan:
         per_unit = _stage_duration(durations, name, job.model)
         units = job.stage_total if name == job.stage else planned_units
@@ -328,9 +343,18 @@ def _recompute_progress(job: _Job) -> None:
         if name == job.stage:
             elapsed_in_current_unit = now - (job._last_event_time or now)
             done_seconds += min(job.stage_current * per_unit + elapsed_in_current_unit, stage_total_seconds)
+            # The calibrated estimate can be badly off for a while after a
+            # workload shape change (e.g. chunk sizes changing what "one
+            # unit" means) — once real elapsed time for the unit in flight
+            # has clearly blown past what was estimated for it, stop
+            # reporting a numeric ETA (which would just sit wrong) and say
+            # so instead (see _stage_label()).
+            current_overtime = elapsed_in_current_unit > per_unit * _OVERTIME_FACTOR
             reached_current = True
         else:
             done_seconds += stage_total_seconds
+
+    job.overtime = current_overtime
 
     if total_seconds <= 0:
         job.percent = 0.0
@@ -338,7 +362,7 @@ def _recompute_progress(job: _Job) -> None:
         return
 
     job.percent = min(99.0, (done_seconds / total_seconds) * 100)
-    job.eta_seconds = max(0.0, total_seconds - done_seconds)
+    job.eta_seconds = None if current_overtime else max(0.0, total_seconds - done_seconds)
 
 
 def _make_callbacks(job: _Job):
@@ -580,7 +604,7 @@ def get_progress(job_id: str) -> JSONResponse:
         response = {
             "done": done,
             "error": job.error,
-            "stage_label": _stage_label(job.stage, job.stage_current, job.stage_total),
+            "stage_label": _stage_label(job.stage, job.stage_current, job.stage_total, job.overtime),
             "percent": round(job.percent, 1),
             "eta_seconds": round(job.eta_seconds, 1) if job.eta_seconds is not None else None,
             "result": job.result,

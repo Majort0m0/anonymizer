@@ -3,12 +3,22 @@ completion events into a calibrated ETA for the progress UI.
 
 Calibrated per STAGE, not per document or per run, because stage cost scales
 differently: LLM stages (deep_check_find/deep_check_missed) are chunked (see
-app/pipeline/deep_check.py), so their duration is tracked per chunk and the
-estimate for a new run is simply per-chunk average * chunk count; cheap,
-non-chunked stages (ingest, presidio_analyze, render, ...) are tracked as one
-duration per stage-run. An exponential moving average lets the estimate
-improve with repeated use (as the user asked for) without needing to store a
-full history or being thrown off by one unusually slow/fast outlier run.
+app/pipeline/deep_check.py — typically just 1 chunk for an ordinary
+document, more only for genuinely long ones), so their duration is tracked
+per chunk and the estimate for a new run is simply per-chunk average * chunk
+count; cheap, non-chunked stages (ingest, presidio_analyze, render, ...) are
+tracked as one duration per stage-run. An exponential moving average lets
+the estimate improve with repeated use (as the user asked for) without
+needing to store a full history or being thrown off by one unusually
+slow/fast outlier run.
+
+The three Ollama-backed stages (deep_check_find, deep_check_missed,
+summarize) are actually stored under a per-model key (e.g.
+"deep_check_find::gemma4:e4b") — see app/server.py's _calibration_key() —
+since a fast and a slow model's real durations are wildly different and
+averaging them together made estimates swing badly whenever the user
+switched models. This module itself just stores whatever key it's given;
+the per-model qualification decision lives in app/server.py, not here.
 """
 
 from __future__ import annotations
@@ -21,17 +31,22 @@ from app.config import APP_DATA_DIR
 _CALIBRATION_PATH = APP_DATA_DIR / "progress_calibration.json"
 _lock = threading.Lock()
 
-# Seconds; rough guesses so the very first run of this app still shows a
-# plausible (if imprecise) ETA instead of "unknown" — corrected towards real
-# measurements from the first run onwards.
+# Seconds; rough guesses so the very first run of an as-yet-uncalibrated
+# (stage, model) combination still shows a plausible (if imprecise) ETA
+# instead of "unknown" — corrected towards real measurements from the first
+# run onwards. The three LLM defaults assume one big chunk covering a whole
+# ordinary document (the common case since the chunk-size increase in
+# deep_check.py) rather than the old small ~350-word chunks, so they're
+# deliberately much higher than a per-chunk estimate would have been before.
 _DEFAULT_DURATIONS: dict[str, float] = {
     "ingest": 2.0,
     "presidio_analyze": 3.0,
-    "deep_check_find": 20.0,  # per chunk
+    "deep_check_find": 90.0,  # per chunk (usually the whole document)
     "redact": 0.5,
     "deep_check_apply": 0.2,
-    "deep_check_missed": 20.0,  # per chunk
-    "summarize": 15.0,
+    "deep_check_missed": 90.0,  # per chunk (usually the whole document)
+    "deep_check_locations": 60.0,  # per chunk (usually the whole document) - narrower prompt, typically faster
+    "summarize": 60.0,
     "render": 0.2,
     "structured_rewrite": 3.0,
 }

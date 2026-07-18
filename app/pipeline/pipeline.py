@@ -228,6 +228,7 @@ def finalize(
         if state.deep_check_requested:
             plan.append(("deep_check_apply", 1))
             plan.append(("deep_check_missed", deep_check.estimate_chunk_count(state.raw_text)))
+            plan.append(("deep_check_locations", deep_check.estimate_chunk_count(state.raw_text)))
         if state.output_mode in (OutputMode.SUMMARY, OutputMode.BOTH):
             plan.append(("summarize", 1))
         plan.append(("render", 1))
@@ -303,6 +304,20 @@ def finalize(
             )
             text = missed_result.anonymized_text
             pii_audit += missed_result.entities
+
+        # A third, narrowly-scoped sweep focused on nothing but place/city
+        # names — see deep_check.find_missed_locations()'s docstring for why
+        # this is worth a dedicated call rather than folding into the
+        # general sweep above.
+        missed_locations = deep_check.find_missed_locations(
+            text, state.language, excluded_categories, on_progress=on_progress
+        )
+        if missed_locations:
+            location_result = deep_check.apply_candidates(
+                text, missed_locations, excluded_categories, source="llm_final_check"
+            )
+            text = location_result.anonymized_text
+            pii_audit += location_result.entities
 
     summary = None
     if state.output_mode in (OutputMode.SUMMARY, OutputMode.BOTH):

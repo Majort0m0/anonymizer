@@ -35,7 +35,16 @@ Two independent LLM passes live here:
   apply_candidates(), which is why it takes excluded_categories itself: it
   must not re-flag something the user deliberately chose to keep visible.
 
-Both passes chunk very long input before sending it to the LLM (see
+- find_missed_locations() - a third sweep, run alongside find_missed_pii(),
+  narrowly scoped to ONLY place/city/location names. A single prompt asking
+  about several different category types at once has weaker recall for any
+  one of them than a pass with only one thing to look for — added after
+  real-world testing showed a city name (mentioned several times) still
+  slipping through the general find_missed_pii() sweep on a full-length
+  document. Same apply mechanism and excluded_categories handling as
+  find_missed_pii().
+
+All three passes chunk very long input before sending it to the LLM (see
 _split_into_chunks()). This is NOT about context-window truncation — tested
 directly against this app's default model/config, a ~1750-word document was
 recalled perfectly in one call. The original motivation was recall degrading
@@ -228,6 +237,50 @@ _MISSED_SYSTEM_EN = (
     "Do not output any additional text, explanations, or code blocks."
 )
 
+# A narrowly-scoped THIRD pass, focused on nothing but place/city names —
+# added after real-world testing showed a city name (mentioned multiple
+# times) still slipping through find_missed_pii() on a full-length document.
+# A single prompt asking about many different category types at once (names,
+# institutions, reference numbers, AND locations) has weaker recall for any
+# one of them than a pass with only one thing to look for — this trades one
+# more Ollama call for stronger location-specific recall specifically.
+_MISSED_LOCATION_SYSTEM_DE = (
+    "Du bist ein Datenschutz-Experte. Der folgende Text wurde bereits automatisch "
+    "anonymisiert: erkannte personenbezogene Daten sind bereits durch Platzhalter wie "
+    "[PERSON] oder [LOCATION] ersetzt. Deine EINZIGE Aufgabe in diesem Durchgang: "
+    "finde JEDEN noch nicht geschwärzten Orts-, Stadt- oder Gemeindenamen im "
+    "GESAMTEN Text — auch in Adresszeilen, Fußzeilen, Briefköpfen und beiläufigen "
+    "Erwähnungen, auch wenn derselbe oder ein anderer Ort an anderer Stelle bereits "
+    "ersetzt wurde. Gehe den Text systematisch von Anfang bis Ende durch und liste "
+    "JEDES einzelne Vorkommen einzeln auf, auch wenn ein Ort mehrfach vorkommt. "
+    "WICHTIG: Ein Platzhalter in eckigen Klammern wie [LOCATION], [PERSON] oder "
+    "[ORT] ist selbst KEIN Ortsname, sondern eine bereits vorgenommene Schwärzung — "
+    "melde niemals eine Textstelle, die nur aus einem solchen Platzhalter "
+    "besteht.{exclusion_note} "
+    "Antworte AUSSCHLIESSLICH mit einem JSON-Array von Objekten der Form "
+    '{{"text": "<exakte Textstelle>", "category": "<kurze Kategorie>"}}. '
+    "Wenn nichts gefunden wird, antworte mit einem leeren Array []. Gib keinerlei "
+    "zusätzlichen Text, keine Erklärungen und keine Code-Blöcke aus."
+)
+
+_MISSED_LOCATION_SYSTEM_EN = (
+    "You are a privacy expert. The following text has already been automatically "
+    "anonymized: detected PII has already been replaced with placeholders such as "
+    "[PERSON] or [LOCATION]. Your ONLY job in this pass: find EVERY place, city, or "
+    "town name in the ENTIRE text that has not been replaced with a placeholder — "
+    "including in address lines, footers, letterheads, and passing mentions, even if "
+    "the same or a different place was already replaced elsewhere. Go through the "
+    "text systematically from start to finish and list EVERY single occurrence "
+    "separately, even if one place is mentioned more than once. "
+    "IMPORTANT: a placeholder in square brackets like [LOCATION] or [PERSON] is NOT "
+    "itself a place name — it is an already-applied redaction. Never report a span "
+    "that consists only of such a placeholder.{exclusion_note} "
+    'Respond ONLY with a JSON array of objects of the form {{"text": "<exact substring>", '
+    '"category": "<short category label>"}}. '
+    "If nothing is found, respond with an empty array []. "
+    "Do not output any additional text, explanations, or code blocks."
+)
+
 _EXCLUSION_NOTE_DE = (
     " Der Nutzer hat sich bewusst entschieden, folgende Datenkategorien in diesem "
     "Dokument sichtbar zu lassen — melde dazu passende Stellen NICHT: {categories}."
@@ -241,6 +294,18 @@ _EXCLUSION_NOTE_EN = (
 _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(\[.*?\])\s*```", re.DOTALL)
 _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
+
+# Matches a candidate "text" that is ITSELF nothing but an already-applied
+# placeholder (e.g. "[LOCATION]", "[PERSON1]") — observed happening despite
+# explicit prompt instructions not to (a narrowly-focused prompt asking
+# specifically about locations proved more prone to this than the general
+# sweep, likely because the literal word "LOCATION" inside the brackets
+# reads as relevant to what it was asked to find). Prompt wording alone
+# isn't reliable enough here, so candidates matching this are dropped
+# deterministically, regardless of which pass found them — silently
+# "re-labeling" an existing placeholder isn't a privacy leak (still
+# redacted either way) but is confusing and wrong.
+_PLACEHOLDER_ONLY_RE = re.compile(r"^\[[A-ZÄÖÜ][A-ZÄÖÜ0-9_]*\]$")
 
 
 def _extract_json_array(response: str) -> list | None:
@@ -324,6 +389,36 @@ def find_missed_pii(
     return _run_chunked_pass(anonymized_text, system, "deep_check_missed", on_progress)
 
 
+def find_missed_locations(
+    anonymized_text: str,
+    language: str,
+    excluded_categories: set[str] | None = None,
+    on_progress: Callable[[str, int, int], None] | None = None,
+) -> list[dict]:
+    """Third LLM sweep, run during finalize() alongside find_missed_pii() —
+    see _MISSED_LOCATION_SYSTEM_DE/_EN's comment for why this is a separate,
+    narrowly-scoped call rather than folded into find_missed_pii(): a prompt
+    asking about several different category types at once has weaker recall
+    for any single one of them than a pass with only one thing to look for,
+    and real-world testing showed a city name (repeated several times)
+    slipping through the general sweep on a full-length document.
+
+    Same return shape/usage as find_missed_pii() — apply via
+    apply_candidates(). `on_progress(stage, current, total)`, if given, is
+    called once per chunk processed with stage="deep_check_locations".
+    """
+    exclusion_note = ""
+    if excluded_categories:
+        note_template = _EXCLUSION_NOTE_DE if language.lower().startswith("de") else _EXCLUSION_NOTE_EN
+        exclusion_note = note_template.format(categories=", ".join(sorted(excluded_categories)))
+
+    system_template = (
+        _MISSED_LOCATION_SYSTEM_DE if language.lower().startswith("de") else _MISSED_LOCATION_SYSTEM_EN
+    )
+    system = system_template.format(exclusion_note=exclusion_note)
+    return _run_chunked_pass(anonymized_text, system, "deep_check_locations", on_progress)
+
+
 def _run_chunked_pass(
     anonymized_text: str,
     system: str,
@@ -366,6 +461,8 @@ def _run_candidate_pass(anonymized_text: str, system: str) -> list[dict]:
         if not isinstance(raw_text, str) or not raw_text.strip():
             continue
         if not isinstance(raw_category, str) or not raw_category.strip():
+            continue
+        if _PLACEHOLDER_ONLY_RE.match(raw_text.strip()):
             continue
         raw_candidates.append((raw_text, raw_category))
 
