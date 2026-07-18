@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import threading
+from pathlib import Path
 from typing import Callable
 
 from presidio_analyzer import AnalyzerEngine, RecognizerRegistry, RecognizerResult
@@ -275,3 +276,37 @@ def apply_anonymization(
     ]
 
     return AnonymizeResult(anonymized_text=anonymized.text, entities=entities)
+
+
+_FILENAME_SEPARATOR_RE = re.compile(r"[_-]")
+
+
+def anonymize_filename(
+    filename: str,
+    language: str,
+    excluded_types: set[str] | None = None,
+    person_mode: PersonMode = PersonMode.REDACT,
+    person_replacer: Callable[[str], str] | None = None,
+) -> str:
+    """Redact PII out of an original upload filename before it is used to
+    build a saved output filename or embedded as a document title.
+
+    spaCy's NER lumps an underscore-joined stem like "Max_Mustermann_Vertrag"
+    into a single MISC span instead of recognizing "Max Mustermann" as a
+    PERSON, but handles hyphens and spaces fine (verified interactively) — so
+    separators are normalized to spaces before detection. The substitution is
+    1-for-1 (never changes length), which keeps analyze()'s character offsets
+    valid for apply_anonymization() to redact the same span it detected.
+    """
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix
+    spaced_stem = _FILENAME_SEPARATOR_RE.sub(" ", stem)
+    results = analyze(spaced_stem, language)
+    anonymized = apply_anonymization(
+        spaced_stem,
+        results,
+        excluded_types=excluded_types,
+        person_mode=person_mode,
+        person_replacer=person_replacer,
+    )
+    return anonymized.anonymized_text + suffix

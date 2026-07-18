@@ -5,6 +5,7 @@ from app.schemas import PiiEntity
 _SOURCE_LABELS = {
     "presidio": "Presidio",
     "llm_deep_check": "LLM-Tiefencheck",
+    "llm_final_check": "LLM-Nachkontrolle",
 }
 
 

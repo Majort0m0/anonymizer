@@ -225,14 +225,18 @@ def finalize_route(payload: FinalizeRequest) -> JSONResponse:
 
         downloads: list[DownloadableFile] = []
         if output.transcript_markdown is not None:
-            filename = _save_text(output.source_filename, "-anonymisiert", ".md", output.transcript_markdown)
+            filename = _save_text(
+                output.redacted_source_filename, "-anonymisiert", ".md", output.transcript_markdown
+            )
             downloads.append(DownloadableFile(label="Transkript (Markdown)", filename=filename))
         if output.summary_markdown is not None:
-            filename = _save_text(output.source_filename, "-zusammenfassung", ".md", output.summary_markdown)
+            filename = _save_text(
+                output.redacted_source_filename, "-zusammenfassung", ".md", output.summary_markdown
+            )
             downloads.append(DownloadableFile(label="Zusammenfassung (Markdown)", filename=filename))
         if output.structured_bytes is not None and output.structured_suffix is not None:
             filename = _save_bytes(
-                output.source_filename, "-anonymisiert", output.structured_suffix, output.structured_bytes
+                output.redacted_source_filename, "-anonymisiert", output.structured_suffix, output.structured_bytes
             )
             label = f"Tabelle ({output.structured_suffix.lstrip('.').upper()})"
             downloads.append(DownloadableFile(label=label, filename=filename))

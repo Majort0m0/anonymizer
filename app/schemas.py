@@ -45,7 +45,7 @@ class PipelineOptions(BaseModel):
 class PiiEntity(BaseModel):
     entity_type: str
     count: int
-    source: str  # "presidio" | "llm_deep_check"
+    source: str  # "presidio" | "llm_deep_check" | "llm_final_check"
 
 
 class AnonymizeResult(BaseModel):
@@ -59,7 +59,8 @@ class DetectedCategory(BaseModel):
 
     category: str
     count: int
-    source: str  # "presidio" | "llm_deep_check"
+    source: str  # "presidio" | "llm_deep_check" — never "llm_final_check" (see
+    # deep_check.py: that pass runs post-finalize, with no review step)
     samples: list[str] = Field(default_factory=list)
     is_person: bool = False  # true only for Presidio's PERSON category — the
     # frontend uses this to decide whether to offer the person-mode toggle

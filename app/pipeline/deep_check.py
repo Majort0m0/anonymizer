@@ -4,19 +4,36 @@ Privacy invariant: every function in this module must only ever be called
 with text that has already gone through the Presidio anonymization pass
 (placeholders like [PERSON] or [EMAIL_ADDRESS] already in place). The raw
 original document must never reach this module or be sent to the local
-model — this pass exists purely to catch indirect identifiers (nicknames,
-role-based references, project codenames, ...) that the deterministic pass
-cannot resolve.
+model.
 
-The flow is split into three steps so the caller can show the user what was
-found (as categories with counts) before anything is actually redacted:
+Two independent LLM passes live here:
 
-1. find_candidates()               - runs the LLM pass, returns raw candidate
-                                      substrings + normalized categories.
-2. summarize_candidate_categories() - aggregates candidates into the
-                                      DetectedCategory rows the review UI shows.
-3. apply_candidates()              - actually performs the redaction, honoring
-                                      any categories the user chose to exclude.
+- find_candidates() / summarize_candidate_categories() / apply_candidates()
+  - the original contextual sweep, run once during analyze() against a
+  preliminary, fully-redacted (no exclusions) text. Scoped to indirect
+  identifiers Presidio structurally cannot resolve: nicknames, role-based
+  references, project codenames. Split into three steps so the caller can
+  show the user what was found (as categories with counts) before anything
+  is actually redacted:
+  1. find_candidates()               - runs the LLM pass, returns raw
+                                        candidate substrings + normalized
+                                        categories.
+  2. summarize_candidate_categories() - aggregates candidates into the
+                                        DetectedCategory rows the review UI
+                                        shows.
+  3. apply_candidates()              - actually performs the redaction,
+                                        honoring any categories the user
+                                        chose to exclude.
+
+- find_missed_pii() - a second, later sweep run during finalize() against
+  the ACTUAL final text (post category-exclusion, post person-mode), looking
+  for plain PII the deterministic pass and the sweep above still missed
+  outright: stray location names, names left in signature lines/closings,
+  business or file reference numbers. There is no review step for this one
+  (the text it runs against only exists once finalize() has already applied
+  the user's choices) — its findings are applied directly via the same
+  apply_candidates(), which is why it takes excluded_categories itself: it
+  must not re-flag something the user deliberately chose to keep visible.
 """
 
 from __future__ import annotations
@@ -51,6 +68,47 @@ _SYSTEM_EN = (
     '"category": "<short category label>"}. '
     "If nothing is found, respond with an empty array []. "
     "Do not output any additional text, explanations, or code blocks."
+)
+
+_MISSED_SYSTEM_DE = (
+    "Du bist ein Datenschutz-Experte. Der folgende Text wurde bereits automatisch "
+    "anonymisiert: erkannte personenbezogene Daten sind bereits durch Platzhalter wie "
+    "[PERSON], [LOCATION] oder [EMAIL_ADDRESS] ersetzt. Prüfe den Text noch einmal "
+    "vollständig auf übersehene, eindeutig identifizierende Angaben, die NICHT durch "
+    "einen Platzhalter ersetzt wurden — insbesondere: Personennamen (auch in "
+    "Unterschriftszeilen, Grußformeln oder Signaturen am Ende), Orts- oder "
+    "Städtenamen im Fließtext, sowie Geschäfts-, Akten- oder Referenznummern. Melde "
+    "NUR Stellen, die eindeutig identifizierend sind — keine bereits durch Platzhalter "
+    "ersetzten Stellen, keine Vermutungen.{exclusion_note} "
+    "Antworte AUSSCHLIESSLICH mit einem JSON-Array von Objekten der Form "
+    '{{"text": "<exakte Textstelle>", "category": "<kurze Kategorie>"}}. '
+    "Wenn nichts gefunden wird, antworte mit einem leeren Array []. Gib keinerlei "
+    "zusätzlichen Text, keine Erklärungen und keine Code-Blöcke aus."
+)
+
+_MISSED_SYSTEM_EN = (
+    "You are a privacy expert. The following text has already been automatically "
+    "anonymized: detected PII has already been replaced with placeholders such as "
+    "[PERSON] or [EMAIL_ADDRESS]. Check the text once more, in full, for any remaining "
+    "clearly identifying details that were NOT replaced with a placeholder — "
+    "especially: person names (including in signature lines, sign-offs, or closings), "
+    "place/city names in the body text, and business, file, or reference numbers. "
+    "Only report spans that are clearly identifying — not already-replaced "
+    "placeholders, and no guesses.{exclusion_note} "
+    'Respond ONLY with a JSON array of objects of the form {{"text": "<exact substring>", '
+    '"category": "<short category label>"}}. '
+    "If nothing is found, respond with an empty array []. "
+    "Do not output any additional text, explanations, or code blocks."
+)
+
+_EXCLUSION_NOTE_DE = (
+    " Der Nutzer hat sich bewusst entschieden, folgende Datenkategorien in diesem "
+    "Dokument sichtbar zu lassen — melde dazu passende Stellen NICHT: {categories}."
+)
+
+_EXCLUSION_NOTE_EN = (
+    " The user has deliberately chosen to leave the following data categories visible "
+    "in this document — do NOT report spans matching them: {categories}."
 )
 
 _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(\[.*?\])\s*```", re.DOTALL)
@@ -94,6 +152,40 @@ def find_candidates(anonymized_text: str, language: str) -> list[dict]:
     dropping/omitting rather than raising.
     """
     system = _SYSTEM_DE if language.lower().startswith("de") else _SYSTEM_EN
+    return _run_candidate_pass(anonymized_text, system)
+
+
+def find_missed_pii(
+    anonymized_text: str, language: str, excluded_categories: set[str] | None = None
+) -> list[dict]:
+    """Second LLM sweep, run during finalize() against the ACTUAL final text
+    (post category-exclusion, post person-mode) — unlike find_candidates(),
+    which only ever sees a preliminary, fully-redacted text and looks for
+    indirect/contextual clues, this one looks for plain PII spans that were
+    simply missed outright: stray location names, names left in signature
+    lines or closings, business/file/reference numbers.
+
+    `excluded_categories` (the same set finalize() used to redact the body)
+    is woven into the prompt itself, not just used to filter results
+    afterwards — since this pass sees the true final text, a category the
+    user chose to leave visible is genuinely present in plain text here, and
+    without this note the model would otherwise "catch" and re-redact
+    exactly what the user asked to keep.
+
+    Same return shape as find_candidates() — pass straight to
+    apply_candidates() (with a distinct `source` label) to apply.
+    """
+    exclusion_note = ""
+    if excluded_categories:
+        note_template = _EXCLUSION_NOTE_DE if language.lower().startswith("de") else _EXCLUSION_NOTE_EN
+        exclusion_note = note_template.format(categories=", ".join(sorted(excluded_categories)))
+
+    system_template = _MISSED_SYSTEM_DE if language.lower().startswith("de") else _MISSED_SYSTEM_EN
+    system = system_template.format(exclusion_note=exclusion_note)
+    return _run_candidate_pass(anonymized_text, system)
+
+
+def _run_candidate_pass(anonymized_text: str, system: str) -> list[dict]:
     response = generate(prompt=anonymized_text, system=system)
 
     items = _extract_json_array(response)
@@ -173,19 +265,24 @@ def apply_candidates(
     text: str,
     candidates: list[dict],
     excluded_categories: set | None = None,
+    source: str = "llm_deep_check",
 ) -> AnonymizeResult:
-    """Actually redact find_candidates() output against `text`.
+    """Actually redact find_candidates()/find_missed_pii() output against `text`.
 
-    `text` may not be byte-identical to whatever find_candidates() originally
-    ran on (the user may have excluded some Presidio categories between the
+    `text` may not be byte-identical to whatever the candidates were found
+    against (the user may have excluded some Presidio categories between the
     "analyze" and "finalize" steps, changing surrounding text), so occurrence
     counts are re-derived from `text` here rather than trusting the stored
     "count". A candidate whose category is in `excluded_categories` is left
     untouched; a candidate that no longer occurs in `text` at all is skipped
     silently, matching this module's existing graceful-degradation behavior.
 
-    `candidates` is expected in find_candidates()'s longest-substring-first
-    order, which is preserved (not re-sorted) here.
+    `candidates` is expected in longest-substring-first order (both
+    find_candidates() and find_missed_pii() sort this way), which is
+    preserved (not re-sorted) here. `source` is stamped onto the returned
+    PiiEntity rows so the audit table can distinguish which LLM pass found
+    what — the default matches find_candidates()'s original single-pass
+    behavior; find_missed_pii() results should pass a different label.
     """
     excluded = excluded_categories or set()
 
@@ -205,7 +302,7 @@ def apply_candidates(
         counts[category] = counts.get(category, 0) + occurrences
 
     entities = [
-        PiiEntity(entity_type=category, count=count, source="llm_deep_check")
+        PiiEntity(entity_type=category, count=count, source=source)
         for category, count in counts.items()
     ]
     return AnonymizeResult(anonymized_text=result_text, entities=entities)

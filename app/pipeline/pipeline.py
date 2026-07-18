@@ -14,6 +14,15 @@ call during analysis always runs against a FULLY redacted (no exclusions)
 preliminary text — the user's later category choices affect only what
 appears in the final output, never what is sent to the LLM. summarize_text()
 is likewise only ever given the final, fully-processed anonymized text.
+
+`finalize()` also runs a second, later deep-check pass (`deep_check.
+find_missed_pii()`) against the true final text, once category exclusions
+and person-mode are already applied — a safety net for plain PII the
+deterministic pass and the first LLM sweep both missed outright (stray
+location names, names left in signature lines, business/reference numbers),
+gated behind the same `deep_check` option. See `app/pipeline/deep_check.py`'s
+module docstring for why this one needs `excluded_categories` itself rather
+than filtering its output afterwards.
 """
 
 from __future__ import annotations
@@ -61,6 +70,7 @@ class PendingState:
 @dataclass
 class FinalizeOutput:
     source_filename: str
+    redacted_source_filename: str
     detected_language: str
     deep_check_enabled: bool
     anonymized_transcript: str | None
@@ -181,10 +191,44 @@ def finalize(
     text = anon_result.anonymized_text
     pii_audit = list(anon_result.entities)
 
+    # The original upload filename can itself carry PII (e.g. a person's
+    # name) and would otherwise flow untouched into the saved output
+    # filename and the document title below — redact it the same way as the
+    # body, reusing person_replacer so a name matches its body-text label.
+    # "clipboard" (app.server / ingest.py's sentinel for pasted-text input,
+    # not a real filename) is skipped: it isn't user data, and spaCy's NER
+    # false-positives on it as a PERSON (observed: score 0.85), which would
+    # otherwise rename every clipboard-sourced output to "[PERSON]...".
+    if state.source_filename == "clipboard":
+        redacted_source_filename = state.source_filename
+    else:
+        redacted_source_filename = anonymize.anonymize_filename(
+            state.source_filename,
+            state.language,
+            excluded_types=excluded_categories,
+            person_mode=person_mode,
+            person_replacer=person_replacer,
+        )
+
     if state.deep_check_requested:
         dc_result = deep_check.apply_candidates(text, state.deep_check_candidates, excluded_categories)
         text = dc_result.anonymized_text
         pii_audit += dc_result.entities
+
+        # A second, later LLM sweep against the now-fully-redacted final
+        # text, looking for plain PII the pass above still missed outright
+        # (stray location names, names left in signature lines, business/
+        # file reference numbers) rather than indirect/contextual clues.
+        # Unlike find_candidates() above (run once during analyze(), before
+        # the user's category choices exist), this runs here against the
+        # true final text so it can be told which categories to leave alone.
+        missed_candidates = deep_check.find_missed_pii(text, state.language, excluded_categories)
+        if missed_candidates:
+            missed_result = deep_check.apply_candidates(
+                text, missed_candidates, excluded_categories, source="llm_final_check"
+            )
+            text = missed_result.anonymized_text
+            pii_audit += missed_result.entities
 
     summary = None
     if state.output_mode in (OutputMode.SUMMARY, OutputMode.BOTH):
@@ -197,7 +241,7 @@ def finalize(
     transcript_markdown = None
     if anonymized_transcript is not None:
         transcript_markdown = render_transcript(
-            source_filename=state.source_filename,
+            source_filename=redacted_source_filename,
             detected_language=state.detected_language,
             deep_check_enabled=state.deep_check_requested,
             anonymized_transcript=anonymized_transcript,
@@ -207,7 +251,7 @@ def finalize(
     summary_markdown = None
     if summary is not None:
         summary_markdown = render_summary(
-            source_filename=state.source_filename,
+            source_filename=redacted_source_filename,
             detected_language=state.detected_language,
             deep_check_enabled=state.deep_check_requested,
             summary=summary,
@@ -240,6 +284,7 @@ def finalize(
 
     return FinalizeOutput(
         source_filename=state.source_filename,
+        redacted_source_filename=redacted_source_filename,
         detected_language=state.detected_language,
         deep_check_enabled=state.deep_check_requested,
         anonymized_transcript=anonymized_transcript,
