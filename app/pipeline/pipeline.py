@@ -9,18 +9,31 @@ redact/numbered/pseudonymize) and produces a `FinalizeOutput`. The PendingState 
 Presidio's internal RecognizerResult objects and, for tabular source formats,
 the original file bytes, none of which cross the HTTP boundary.
 
-Privacy-critical ordering, unchanged by the two-step split: deep-check's LLM
-call during analysis always runs against a FULLY redacted (no exclusions)
-preliminary text — the user's later category choices affect only what
-appears in the final output, never what is sent to the LLM. summarize_text()
-is likewise only ever given the final, fully-processed anonymized text. This
-"fully redacted" text must include column_classifier's findings too, not
-just Presidio's — column-classified values are specifically ones Presidio's
-own NER is weak on (see column_classifier.py), so `analyze()` computes
-column_candidates BEFORE building deep-check's preliminary text and applies
-them to it (this was a real, since-fixed bug: an earlier version computed
-column_candidates after the deep-check call, sending exactly the values
-this feature exists to protect to Ollama in raw form).
+Deep-check's first LLM pass (`deep_check.find_candidates()`, called from
+`analyze()`) is handed the RAW, unredacted text. It used to run against a
+Presidio-redacted "preliminary" text instead, purely as an extra privacy
+precaution — but Ollama here is always the local instance (never reachable
+over the network either way), and that precaution had two real, observed
+costs and no compensating benefit: Presidio's own NER mistakes could corrupt
+the very phrases the LLM needed to read intact (observed: a mis-tagged
+LOCATION span ate part of an unrelated sentence that contained a nickname),
+and pre-redacting collapsed every distinct person in the document to the
+same generic "[PERSON]" placeholder, removing the LLM's ability to tell
+WHICH person a nickname/role/context clue belonged to whenever a document
+mentions more than one. See `app/pipeline/deep_check.py`'s module docstring
+for how its prompts were adjusted to match (the model must now be told to
+ignore the obvious direct identifiers it can plainly see, since Presidio
+already handles those, and only report indirect/contextual ones).
+
+`find_missed_pii()`/`find_missed_locations()` (run later, in `finalize()`)
+and `summarize_text()` are NOT part of the above change and still only ever
+see the true FINAL, fully-processed text (post category-exclusion, post
+person-mode). That is not a privacy precaution to begin with, but a
+correctness requirement independent of it: those two deep-check passes exist
+specifically to audit the actual final output for anything left un-redacted,
+and a summary of an "anonymized" document has to summarize the
+actually-anonymized text — summarizing the original would defeat the
+category exclusions/pseudonymization the user just chose.
 
 `finalize()` also runs a second, later deep-check pass (`deep_check.
 find_missed_pii()`) against the true final text, once category exclusions
@@ -80,6 +93,7 @@ class PendingState:
     detected_language: str
     language: str  # resolved language actually used for analysis/LLM calls
     output_mode: OutputMode
+    anonymize_requested: bool
     deep_check_requested: bool
     raw_text: str
     presidio_results: list
@@ -94,6 +108,7 @@ class FinalizeOutput:
     source_filename: str
     redacted_source_filename: str
     detected_language: str
+    anonymization_enabled: bool
     deep_check_enabled: bool
     anonymized_transcript: str | None
     summary: str | None
@@ -124,6 +139,28 @@ def analyze(
 ) -> tuple[PendingState, list[DetectedCategory]]:
     language = _resolve_language(options.language_hint, detected_language)
 
+    if not options.anonymize:
+        # The user explicitly wants a plain transcript/summary of the
+        # original text with no PII detection/redaction at all (see module
+        # docstring) — skip straight past Presidio, deep-check, and column
+        # classification entirely; there is nothing to review, and
+        # finalize() takes the same early-exit path. deep_check is forced
+        # off here too (server.py also enforces this) since it's meaningless
+        # without anonymization.
+        state = PendingState(
+            source_filename=source_filename,
+            detected_language=detected_language,
+            language=language,
+            output_mode=options.output_mode,
+            anonymize_requested=False,
+            deep_check_requested=False,
+            raw_text=raw_text,
+            presidio_results=[],
+            source_bytes=source_bytes,
+            source_suffix=source_suffix,
+        )
+        return state, []
+
     if on_plan:
         plan: list[tuple[str, int]] = [("presidio_analyze", 1)]
         if options.deep_check:
@@ -141,13 +178,7 @@ def analyze(
     # possible for structured source formats, which are the only ones
     # source_bytes is ever set for. Deliberately independent of the
     # deep_check toggle: this is free, deterministic, local keyword matching
-    # with no LLM involved, not an extra opt-in check. Computed BEFORE the
-    # deep-check block below, not after — deep-check's preliminary text (see
-    # below) must have column-classified values already redacted before it
-    # is sent to Ollama, and column-classified values are specifically the
-    # ones Presidio's own NER is weak on (that's the whole reason this
-    # feature exists), so computing this after would send exactly the
-    # values it's meant to protect to the LLM in raw form.
+    # with no LLM involved, not an extra opt-in check.
     column_candidates: list = []
     if source_bytes is not None and source_suffix is not None:
         column_candidates = column_classifier.extract_column_candidates(source_bytes, source_suffix)
@@ -155,19 +186,11 @@ def analyze(
 
     deep_check_candidates: list = []
     if options.deep_check:
-        # Deep-check must only ever see fully-redacted text, regardless of
-        # what the user later chooses to exclude from the final output —
-        # this includes column-classified values, redacted here with no
-        # exclusions applied, exactly like Presidio's own redaction two
-        # lines below.
-        preliminary = anonymize.apply_anonymization(raw_text, presidio_results)
-        preliminary_text = preliminary.anonymized_text
-        if column_candidates:
-            preliminary_text = deep_check.apply_candidates(
-                preliminary_text, column_candidates, set(), source="column_header"
-            ).anonymized_text
+        # Raw text, deliberately — see this module's docstring for why
+        # find_candidates() no longer needs a pre-redacted "preliminary"
+        # text built for it first.
         deep_check_candidates = deep_check.find_candidates(
-            preliminary_text, language, on_progress=on_progress
+            raw_text, language, on_progress=on_progress
         )
         categories += deep_check.summarize_candidate_categories(deep_check_candidates)
 
@@ -176,6 +199,7 @@ def analyze(
         detected_language=detected_language,
         language=language,
         output_mode=options.output_mode,
+        anonymize_requested=True,
         deep_check_requested=options.deep_check,
         raw_text=raw_text,
         presidio_results=presidio_results,
@@ -249,6 +273,83 @@ def _rewrite_structured(
     raise ValueError(f"No structured rewriter available for suffix {source_suffix!r}.")
 
 
+def _finalize_without_anonymization(
+    state: PendingState,
+    on_progress: Callable[[str, int, int], None] | None,
+    on_plan: Callable[[list[tuple[str, int]]], None] | None,
+) -> FinalizeOutput:
+    """finalize()'s entire redaction machinery, skipped: the user explicitly
+    asked for a plain transcript/summary of the original text (see module
+    docstring). No structured re-export either — with nothing redacted, it
+    would just be an unmodified copy of the original file, which isn't worth
+    producing. The original filename is kept as-is too, for the same reason
+    (anonymize_filename() exists specifically to protect the ANONYMIZED
+    output; there's nothing to protect it from here since the user chose not
+    to anonymize this document at all)."""
+    if on_plan:
+        plan: list[tuple[str, int]] = []
+        if state.output_mode in (OutputMode.SUMMARY, OutputMode.BOTH):
+            plan.append(("summarize", 1))
+        plan.append(("render", 1))
+        on_plan(plan)
+
+    text = state.raw_text
+    pii_audit: list[PiiEntity] = []
+
+    summary = None
+    if state.output_mode in (OutputMode.SUMMARY, OutputMode.BOTH):
+        if on_progress:
+            on_progress("summarize", 0, 1)
+        summary = summarize_text(text, state.language, anonymized=False)
+        if on_progress:
+            on_progress("summarize", 1, 1)
+
+    anonymized_transcript = None
+    if state.output_mode in (OutputMode.TRANSCRIPT, OutputMode.BOTH):
+        anonymized_transcript = text
+
+    if on_progress:
+        on_progress("render", 0, 1)
+    transcript_markdown = None
+    if anonymized_transcript is not None:
+        transcript_markdown = render_transcript(
+            source_filename=state.source_filename,
+            detected_language=state.detected_language,
+            anonymization_enabled=False,
+            deep_check_enabled=False,
+            anonymized_transcript=anonymized_transcript,
+            pii_audit=pii_audit,
+        )
+
+    summary_markdown = None
+    if summary is not None:
+        summary_markdown = render_summary(
+            source_filename=state.source_filename,
+            detected_language=state.detected_language,
+            anonymization_enabled=False,
+            deep_check_enabled=False,
+            summary=summary,
+            pii_audit=pii_audit,
+        )
+    if on_progress:
+        on_progress("render", 1, 1)
+
+    return FinalizeOutput(
+        source_filename=state.source_filename,
+        redacted_source_filename=state.source_filename,
+        detected_language=state.detected_language,
+        anonymization_enabled=False,
+        deep_check_enabled=False,
+        anonymized_transcript=anonymized_transcript,
+        summary=summary,
+        pii_audit=pii_audit,
+        transcript_markdown=transcript_markdown,
+        summary_markdown=summary_markdown,
+        structured_bytes=None,
+        structured_suffix=None,
+    )
+
+
 def finalize(
     state: PendingState,
     excluded_categories: set[str],
@@ -256,6 +357,9 @@ def finalize(
     on_progress: Callable[[str, int, int], None] | None = None,
     on_plan: Callable[[list[tuple[str, int]]], None] | None = None,
 ) -> FinalizeOutput:
+    if not state.anonymize_requested:
+        return _finalize_without_anonymization(state, on_progress, on_plan)
+
     if on_plan:
         plan: list[tuple[str, int]] = [("redact", 1)]
         if state.deep_check_requested:
@@ -400,6 +504,7 @@ def finalize(
         transcript_markdown = render_transcript(
             source_filename=redacted_source_filename,
             detected_language=state.detected_language,
+            anonymization_enabled=True,
             deep_check_enabled=state.deep_check_requested,
             anonymized_transcript=anonymized_transcript,
             pii_audit=pii_audit,
@@ -410,6 +515,7 @@ def finalize(
         summary_markdown = render_summary(
             source_filename=redacted_source_filename,
             detected_language=state.detected_language,
+            anonymization_enabled=True,
             deep_check_enabled=state.deep_check_requested,
             summary=summary,
             pii_audit=pii_audit,
@@ -466,6 +572,7 @@ def finalize(
         source_filename=state.source_filename,
         redacted_source_filename=redacted_source_filename,
         detected_language=state.detected_language,
+        anonymization_enabled=True,
         deep_check_enabled=state.deep_check_requested,
         anonymized_transcript=anonymized_transcript,
         summary=summary,

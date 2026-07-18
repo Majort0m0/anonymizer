@@ -95,6 +95,7 @@ _pending_lock = threading.Lock()
 class ClipboardAnalyzeRequest(BaseModel):
     text: str
     output_mode: OutputMode = OutputMode.BOTH
+    anonymize: bool = True
     deep_check: bool = True
 
 
@@ -438,6 +439,7 @@ def _build_pending_analysis_result(state: PendingState, categories: list[Detecte
         source_filename=state.source_filename,
         detected_language=state.detected_language,
         output_mode=state.output_mode,
+        anonymize=state.anonymize_requested,
         deep_check=state.deep_check_requested,
         categories=categories,
     )
@@ -472,6 +474,7 @@ def _run_analyze_file_job(job: _Job, tmp_path: Path, options: PipelineOptions, t
 async def analyze_file_route(
     file: UploadFile = File(...),
     output_mode: OutputMode = Form(OutputMode.BOTH),
+    anonymize: bool = Form(True),
     deep_check: bool = Form(True),
 ) -> JSONResponse:
     try:
@@ -482,7 +485,10 @@ async def analyze_file_route(
     except Exception as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
 
-    options = PipelineOptions(output_mode=output_mode, deep_check=deep_check)
+    # deep_check is meaningless without anonymization (see schemas.py's
+    # PipelineOptions.anonymize docstring) — enforced here rather than trusting
+    # the client to keep the two in sync.
+    options = PipelineOptions(output_mode=output_mode, anonymize=anonymize, deep_check=deep_check and anonymize)
     job_id, job = _create_job()
     threading.Thread(
         target=_run_analyze_file_job, args=(job, tmp_path, options, tmp_dir), daemon=True
@@ -510,7 +516,11 @@ def _run_analyze_clipboard_job(job: _Job, text: str, options: PipelineOptions) -
 
 @app.post("/api/analyze-clipboard")
 def analyze_clipboard_route(payload: ClipboardAnalyzeRequest) -> JSONResponse:
-    options = PipelineOptions(output_mode=payload.output_mode, deep_check=payload.deep_check)
+    options = PipelineOptions(
+        output_mode=payload.output_mode,
+        anonymize=payload.anonymize,
+        deep_check=payload.deep_check and payload.anonymize,
+    )
     job_id, job = _create_job()
     threading.Thread(
         target=_run_analyze_clipboard_job, args=(job, payload.text, options), daemon=True
@@ -551,6 +561,7 @@ def _run_finalize_job(job: _Job, state: PendingState, excluded_categories: set[s
         result = PipelineResult(
             source_filename=output.source_filename,
             detected_language=output.detected_language,
+            anonymization_enabled=output.anonymization_enabled,
             deep_check_enabled=output.deep_check_enabled,
             anonymized_transcript=output.anonymized_transcript,
             summary=output.summary,
@@ -651,6 +662,7 @@ def replace_text_route(payload: ReplaceTextRequest) -> JSONResponse:
             markdown = render_transcript(
                 source_filename=payload.source_filename,
                 detected_language=payload.detected_language,
+                anonymization_enabled=payload.anonymization_enabled,
                 deep_check_enabled=payload.deep_check_enabled,
                 anonymized_transcript=new_transcript,
                 pii_audit=payload.pii_audit,
@@ -662,6 +674,7 @@ def replace_text_route(payload: ReplaceTextRequest) -> JSONResponse:
             markdown = render_summary(
                 source_filename=payload.source_filename,
                 detected_language=payload.detected_language,
+                anonymization_enabled=payload.anonymization_enabled,
                 deep_check_enabled=payload.deep_check_enabled,
                 summary=new_summary,
                 pii_audit=payload.pii_audit,
@@ -672,6 +685,7 @@ def replace_text_route(payload: ReplaceTextRequest) -> JSONResponse:
         result = PipelineResult(
             source_filename=payload.source_filename,
             detected_language=payload.detected_language,
+            anonymization_enabled=payload.anonymization_enabled,
             deep_check_enabled=payload.deep_check_enabled,
             anonymized_transcript=new_transcript,
             summary=new_summary,

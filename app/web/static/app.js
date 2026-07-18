@@ -48,6 +48,8 @@ const clipboardPreviewWrap = document.getElementById("clipboard-preview-wrap");
 const clipboardPreview = document.getElementById("clipboard-preview");
 const clipboardClearBtn = document.getElementById("clipboard-clear-btn");
 
+const anonymizeToggle = document.getElementById("anonymize-toggle");
+const deepCheckRow = document.getElementById("deep-check-row");
 const deepCheckToggle = document.getElementById("deep-check-toggle");
 const outputModeRadios = document.querySelectorAll('input[name="output-mode"]');
 
@@ -311,6 +313,22 @@ for (const radio of outputModeRadios) {
 }
 updateSegmentedHighlight();
 
+// Tiefencheck is meaningless without anonymization (nothing gets redacted for
+// it to double-check) — disabling the anonymize toggle disables and unchecks
+// it too, mirroring setPersonToggleEnabled()'s pattern for the person-mode
+// toggle below.
+function updateDeepCheckAvailability() {
+  const anonymizeEnabled = anonymizeToggle.checked;
+  deepCheckRow.classList.toggle("disabled", !anonymizeEnabled);
+  deepCheckToggle.disabled = !anonymizeEnabled;
+  if (!anonymizeEnabled) {
+    deepCheckToggle.checked = false;
+  }
+}
+
+anonymizeToggle.addEventListener("change", updateDeepCheckAvailability);
+updateDeepCheckAvailability();
+
 function formatSourceLabel(source) {
   return SOURCE_LABELS[source] || source;
 }
@@ -404,10 +422,11 @@ async function pollProgress(jobId, { fillEl, labelEl, etaEl }) {
 
 // --- Phase 1 -> 2: analyze ---------------------------------------------------
 
-async function analyzeFile(file, outputMode, deepCheck) {
+async function analyzeFile(file, outputMode, anonymize, deepCheck) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("output_mode", outputMode);
+  formData.append("anonymize", String(anonymize));
   formData.append("deep_check", String(deepCheck));
 
   const response = await fetch("/api/analyze-file", {
@@ -417,13 +436,14 @@ async function analyzeFile(file, outputMode, deepCheck) {
   return response;
 }
 
-async function analyzeClipboard(text, outputMode, deepCheck) {
+async function analyzeClipboard(text, outputMode, anonymize, deepCheck) {
   const response = await fetch("/api/analyze-clipboard", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       text,
       output_mode: outputMode,
+      anonymize,
       deep_check: deepCheck,
     }),
   });
@@ -442,14 +462,15 @@ analyzeBtn.addEventListener("click", async () => {
   analyzeBtn.disabled = true;
 
   const outputMode = getOutputMode();
+  const anonymize = anonymizeToggle.checked;
   const deepCheck = deepCheckToggle.checked;
 
   try {
     let response;
     if (selectedFile !== null) {
-      response = await analyzeFile(selectedFile, outputMode, deepCheck);
+      response = await analyzeFile(selectedFile, outputMode, anonymize, deepCheck);
     } else {
-      response = await analyzeClipboard(clipboardPreview.value, outputMode, deepCheck);
+      response = await analyzeClipboard(clipboardPreview.value, outputMode, anonymize, deepCheck);
     }
 
     const data = await response.json();
@@ -604,12 +625,26 @@ function renderCategories(pending) {
 
   reviewList.innerHTML = "";
 
-  if (currentCategories.length === 0) {
+  if (pending.anonymize === false) {
+    // Nothing was detected because detection never ran (the user turned
+    // anonymization off) — a different claim than "we checked and found
+    // nothing", so it gets its own message rather than reusing reviewEmpty's
+    // default text. Nothing to review or exclude either, so the button just
+    // moves on to producing the plain transcript/summary.
+    reviewEmpty.textContent =
+      "Anonymisierung ist deaktiviert — Transkript und/oder Zusammenfassung werden unverändert aus dem Original erstellt.";
     reviewEmpty.classList.remove("hidden");
     reviewList.classList.add("hidden");
+    finalizeBtn.textContent = "Weiter";
+  } else if (currentCategories.length === 0) {
+    reviewEmpty.textContent = "Es wurden keine personenbezogenen Daten erkannt.";
+    reviewEmpty.classList.remove("hidden");
+    reviewList.classList.add("hidden");
+    finalizeBtn.textContent = "Anonymisierung anwenden";
   } else {
     reviewEmpty.classList.add("hidden");
     reviewList.classList.remove("hidden");
+    finalizeBtn.textContent = "Anonymisierung anwenden";
     for (const category of currentCategories) {
       reviewList.appendChild(buildCategoryRow(category));
     }
@@ -817,6 +852,7 @@ async function performReplace(replaceAll) {
       body: JSON.stringify({
         source_filename: currentResult.source_filename,
         detected_language: currentResult.detected_language,
+        anonymization_enabled: currentResult.anonymization_enabled,
         deep_check_enabled: currentResult.deep_check_enabled,
         anonymized_transcript: currentResult.anonymized_transcript,
         summary: currentResult.summary,

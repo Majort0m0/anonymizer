@@ -1,20 +1,34 @@
-"""Second-pass PII detection over text the deterministic Presidio pass already redacted.
+"""Second-pass PII detection layered on top of the deterministic Presidio pass.
 
-Privacy invariant: every function in this module must only ever be called
-with text that has already gone through the Presidio anonymization pass
-(placeholders like [PERSON] or [EMAIL_ADDRESS] already in place). The raw
-original document must never reach this module or be sent to the local
-model.
+Only find_missed_pii()/find_missed_locations() carry a privacy invariant:
+both must only ever be called with the true FINAL, fully-processed text
+(post category-exclusion, post person-mode) — not because raw text is
+forbidden from reaching the local model (it isn't; Ollama here is always the
+local, never-networked instance), but because their entire job is to audit
+the actual final output for anything left un-redacted. Auditing the original
+text instead would defeat the purpose.
+
+find_candidates() carries no such restriction and is deliberately called with
+the RAW, unredacted text (see app/pipeline/pipeline.py's module docstring for
+why: pre-redacting it used to be an extra privacy precaution with two real
+costs — Presidio's own NER mistakes could corrupt the very phrases the LLM
+needed to read intact, and collapsing every distinct person to the same
+generic "[PERSON]" placeholder removed the LLM's ability to tell WHICH person
+a nickname/role/context clue belonged to whenever a document mentions more
+than one). Its prompt (_SYSTEM_DE/_SYSTEM_EN below) is written accordingly: it
+tells the model the text is NOT yet anonymized and to ignore the obvious
+direct identifiers it can plainly see (full names, emails, addresses, phone
+numbers) since Presidio's deterministic pass already handles those — its job
+is only the indirect/contextual clues Presidio structurally cannot resolve.
 
 Two independent LLM passes live here:
 
 - find_candidates() / summarize_candidate_categories() / apply_candidates()
-  - the original contextual sweep, run once during analyze() against a
-  preliminary, fully-redacted (no exclusions) text. Scoped to indirect
-  identifiers Presidio structurally cannot resolve: nicknames, role-based
-  references, project codenames. Split into three steps so the caller can
-  show the user what was found (as categories with counts) before anything
-  is actually redacted:
+  - the original contextual sweep, run once during analyze() against the raw
+  text. Scoped to indirect identifiers Presidio structurally cannot resolve:
+  nicknames, role-based references, project codenames. Split into three
+  steps so the caller can show the user what was found (as categories with
+  counts) before anything is actually redacted:
   1. find_candidates()               - runs the LLM pass, returns raw
                                         candidate substrings + normalized
                                         categories.
@@ -170,12 +184,18 @@ def _merge_chunk_candidates(chunk_results: list[list[dict]], full_text: str) -> 
     return merged
 
 _SYSTEM_DE = (
-    "Du bist ein Datenschutz-Experte. Der folgende Text wurde bereits automatisch "
-    "anonymisiert: direkte Namen, Adressen, E-Mails usw. sind bereits durch Platzhalter "
-    "wie [PERSON] oder [EMAIL_ADDRESS] ersetzt. Deine Aufgabe ist es, verbleibende "
-    "Hinweise zu finden, die eine Person trotzdem identifizierbar machen könnten: "
-    "Spitznamen, Rollenbezeichnungen (z. B. \"der Teamleiter\", \"die Assistentin von X\"), "
-    "indirekte Verweise, Projekt- oder Decknamen, oder andere kontextabhängige Hinweise. "
+    "Du bist ein Datenschutz-Experte. Der folgende Text ist der unveränderte Originaltext "
+    "und wurde noch NICHT anonymisiert. Eine separate, zuverlässige automatische Erkennung "
+    "kümmert sich bereits eigenständig um alle offensichtlichen direkten Angaben — vollständige "
+    "Namen, Adressen, Telefonnummern, E-Mail-Adressen, IBANs usw. Melde SOLCHE offensichtlichen "
+    "Stellen NICHT, auch wenn du sie im Text siehst. Deine Aufgabe ist ausschließlich, "
+    "zusätzliche, indirekte Hinweise zu finden, die eine Person trotzdem identifizierbar "
+    "machen könnten, obwohl ihr Name an anderer Stelle entfernt wird: Spitznamen, "
+    "Rollenbezeichnungen (z. B. \"der Teamleiter\", \"die Assistentin von X\"), indirekte "
+    "Verweise, Projekt- oder Decknamen, oder andere kontextabhängige Hinweise. Nutze den "
+    "vollen Kontext (echte Namen, Bezüge zwischen mehreren Personen) nur, um solche "
+    "indirekten Hinweise korrekt der jeweiligen Person zuzuordnen — melde die Namen selbst "
+    "nicht als Fund. "
     "Antworte AUSSCHLIESSLICH mit einem JSON-Array von Objekten der Form "
     '{"text": "<exakte Textstelle>", "category": "<kurze Kategorie>"}. '
     "Wenn nichts gefunden wird, antworte mit einem leeren Array []. "
@@ -183,12 +203,16 @@ _SYSTEM_DE = (
 )
 
 _SYSTEM_EN = (
-    "You are a privacy expert. The following text has already been automatically "
-    "anonymized: direct names, addresses, emails etc. have already been replaced with "
-    "placeholders such as [PERSON] or [EMAIL_ADDRESS]. Your job is to find any remaining "
-    "clues that could still identify a person: nicknames, role-based identifiers "
-    "(e.g. \"the team lead\", \"X's assistant\"), indirect references, project or code "
-    "names, or other context-dependent hints. "
+    "You are a privacy expert. The following text is the unmodified original and has NOT "
+    "been anonymized yet. A separate, reliable automated pass already handles all obvious "
+    "direct identifiers on its own — full names, addresses, phone numbers, email addresses, "
+    "IBANs, etc. Do NOT report such obvious spans, even if you see them in the text. Your "
+    "job is only to find additional, indirect clues that could still identify a person even "
+    "after their name is removed elsewhere: nicknames, role-based identifiers (e.g. \"the "
+    "team lead\", \"X's assistant\"), indirect references, project or code names, or other "
+    "context-dependent hints. Use the full context (real names, relationships between "
+    "several people) only to correctly attribute such indirect clues to the right person — "
+    "do not report the names themselves as a finding. "
     'Respond ONLY with a JSON array of objects of the form {"text": "<exact substring>", '
     '"category": "<short category label>"}. '
     "If nothing is found, respond with an empty array []. "
@@ -329,29 +353,33 @@ def _normalize_category(category: str) -> str:
 
 
 def find_candidates(
-    anonymized_text: str,
+    raw_text: str,
     language: str,
     on_progress: Callable[[str, int, int], None] | None = None,
 ) -> list[dict]:
     """Run the LLM deep-check pass and return validated candidate substrings.
 
-    `anonymized_text` must already be the output of the Presidio pass (see
-    module docstring) — this function never sees, and must never be given,
-    the raw original document.
+    `raw_text` is the ORIGINAL, unredacted document text (see module
+    docstring for why this is deliberate rather than a Presidio-redacted
+    "preliminary" text) — the prompt itself (_SYSTEM_DE/_SYSTEM_EN) tells the
+    model to ignore the obvious direct identifiers it can plainly see and
+    only report indirect/contextual ones, so a plain name/email/address
+    showing up here does not get flagged (and duplicate-redacted) on top of
+    Presidio's own pass.
 
     Returns a list of {"text": <original candidate substring>, "category":
     <normalized UPPER_SNAKE_CASE category>, "count": <occurrences found in
-    anonymized_text>} dicts, sorted by substring length descending (so a
-    short match doesn't get consumed by redacting a longer overlapping one
-    first when these are later applied). On any parse failure, or when no
-    candidate actually occurs in the text, this degrades gracefully by
+    raw_text>} dicts, sorted by substring length descending (so a short match
+    doesn't get consumed by redacting a longer overlapping one first when
+    these are later applied). On any parse failure, or when no candidate
+    actually occurs in the text, this degrades gracefully by
     dropping/omitting rather than raising.
 
     `on_progress(stage, current, total)`, if given, is called once per chunk
     processed (see module docstring on chunking) with stage="deep_check_find".
     """
     system = _SYSTEM_DE if language.lower().startswith("de") else _SYSTEM_EN
-    return _run_chunked_pass(anonymized_text, system, "deep_check_find", on_progress)
+    return _run_chunked_pass(raw_text, system, "deep_check_find", on_progress)
 
 
 def find_missed_pii(

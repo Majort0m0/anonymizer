@@ -28,12 +28,18 @@ Modelle (kein Cloud-API-Aufruf).
   Modi: geschwärzt (generisches "[PERSON]"), nummeriert ("[PERSON1]",
   "[PERSON2]", … — unterscheidet mehrere Personen im Dokument, ohne echte
   Namen preiszugeben) oder pseudonymisiert (Ersetzung durch einen erfundenen,
-  aber im Dokument konsistenten Fantasienamen).
+  aber im Dokument konsistenten Fantasienamen). Die Anonymisierung selbst lässt
+  sich per Schalter auch ganz abschalten, wenn nur ein reines, als Markdown
+  formatiertes Transkript oder eine Zusammenfassung gebraucht wird, ohne dass
+  etwas geschwärzt werden soll — in dem Fall entfällt auch die Kategorien-
+  Prüfung und der Tiefencheck, da es nichts zu prüfen gibt.
 - **Transkription**: `faster-whisper` für Audio-Input
-- **Zusammenfassung**: wird immer aus dem final anonymisierten Text erzeugt,
-  nie aus dem Original — unabhängig davon, welche Kategorien der Nutzer von
-  der Schwärzung ausgenommen hat. Sie wird als eigenständige Markdown-Datei
-  ausgegeben, getrennt vom Transkript.
+- **Zusammenfassung**: wird aus dem final anonymisierten Text erzeugt, nie aus
+  dem Original — unabhängig davon, welche Kategorien der Nutzer von der
+  Schwärzung ausgenommen hat. Ausnahme: Ist die Anonymisierung bewusst
+  abgeschaltet (siehe oben), erhält die Zusammenfassung den Originaltext: die
+  Verarbeitung bleibt dabei trotzdem vollständig lokal. Die Zusammenfassung
+  wird als eigenständige Markdown-Datei ausgegeben, getrennt vom Transkript.
 - **Ausgabedateien**: `{Originalname}-anonymisiert.md` (Transkript),
   `{Originalname}-zusammenfassung.md` (Zusammenfassung, falls gewählt), und
   bei tabellarischen Quellformaten (`.xlsx`/`.xls`, `.csv`, `.json`, `.ods`)

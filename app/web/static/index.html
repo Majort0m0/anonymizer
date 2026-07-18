@@ -58,6 +58,17 @@
 
       <div class="option-row">
         <label class="toggle">
+          <input type="checkbox" id="anonymize-toggle" checked>
+          <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">
+            Anonymisierung
+            <span class="toggle-desc">Personenbezogene Daten erkennen und schwärzen. Bei Bedarf ausschalten, um nur ein reines Transkript oder eine Zusammenfassung ohne Schwärzung zu erhalten.</span>
+          </span>
+        </label>
+      </div>
+
+      <div id="deep-check-row" class="option-row">
+        <label class="toggle">
           <input type="checkbox" id="deep-check-toggle">
           <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
           <span class="toggle-label">
@@ -264,13 +275,26 @@
       <section class="help-section">
         <h3>Optionen im Detail</h3>
         <dl>
+          <dt>Anonymisierung</dt>
+          <dd>
+            Standardmäßig aktiv. Ausgeschaltet wird gar nicht erst nach personenbezogenen Daten
+            gesucht — Transkript und/oder Zusammenfassung entstehen unverändert aus dem
+            Originaltext. Praktisch, wenn ohnehin nur eine reine Zusammenfassung oder ein
+            Markdown-Export gebraucht wird. Der Tiefencheck (siehe unten) ist in diesem Fall
+            nicht verfügbar, und es entsteht keine zusätzliche Tabellen-Kopie im Originalformat,
+            da diese mit dem Original identisch wäre.
+          </dd>
           <dt>Tiefencheck (LLM-Prüfung)</dt>
           <dd>
-            Ein zusätzlicher, langsamerer Durchlauf durch ein lokales Sprachmodell, <em>nachdem</em>
-            die automatische Erkennung bereits alle offensichtlichen Daten geschwärzt hat. Er findet
-            Dinge, die eine reine Muster-/Namenserkennung strukturell nicht erkennen kann: Spitznamen
-            ("Krümel"), Rollenbezeichnungen ("der Teamleiter"), Projekt- oder Decknamen. Er ist kein
-            Ersatz für die automatische Erkennung, sondern eine zweite, gezielt andere Prüfung obendrauf.
+            Ein zusätzlicher, langsamerer Durchlauf durch ein lokales Sprachmodell. Er findet Dinge,
+            die eine reine Muster-/Namenserkennung strukturell nicht erkennen kann: Spitznamen
+            ("Krümel"), Rollenbezeichnungen ("der Teamleiter"), Projekt- oder Decknamen. Dieser erste
+            Durchlauf bekommt bewusst den Originaltext zu sehen (nicht die bereits geschwärzte
+            Fassung) — nur so kann er einen Spitznamen oder eine Rollenbezeichnung zuverlässig der
+            richtigen Person zuordnen, auch wenn im Dokument mehrere Personen vorkommen. Nach der
+            eigentlichen Anonymisierung prüft ein weiterer, gezielter Durchlauf das fertige Ergebnis
+            noch einmal auf übersehene Angaben. Der Tiefencheck ist kein Ersatz für die automatische
+            Erkennung, sondern eine zweite, gezielt andere Prüfung obendrauf.
           </dd>
           <dt>Ausgabe: Transkript / Zusammenfassung / Beides</dt>
           <dd>
@@ -362,7 +386,7 @@
         <ul class="help-privacy-list">
           <li><strong>Alles läuft lokal.</strong> Es gibt keine Cloud-Anbindung und keinen externen API-Aufruf — weder für die Dokumentenanalyse noch für die KI-Auswertung.</li>
           <li><strong>Rohdaten verlassen nie diesen Rechner.</strong> Hochgeladene Dateien werden nur temporär auf der Festplatte zwischengespeichert und nach der Analyse sofort gelöscht.</li>
-          <li><strong>Das Sprachmodell (Ollama) sieht nur bereits anonymisierten Text.</strong> Der Tiefencheck und die Zusammenfassung laufen ausschließlich über bereits geschwärzten Text — nie über das Originaldokument.</li>
+          <li><strong>Das Sprachmodell (Ollama) läuft ausschließlich lokal auf diesem Rechner — nie über eine Cloud oder das Internet.</strong> Der erste Tiefencheck-Durchlauf sieht dafür bewusst den Originaltext (siehe „Tiefencheck“ oben), damit er Spitznamen und Rollenbezeichnungen korrekt der richtigen Person zuordnen kann; ein zweiter Durchlauf nach der Anonymisierung sowie die Zusammenfassung sehen dagegen den bereits fertig anonymisierten Text. Ist die Anonymisierung bewusst ausgeschaltet, erhält auch die Zusammenfassung den Originaltext — auch dann bleibt die Verarbeitung vollständig lokal.</li>
           <li><strong>Ergebnisdateien liegen lokal.</strong> Anonymisierte Dokumente werden in einem lokalen Ordner dieser App gespeichert und stehen nur auf diesem Rechner zur Verfügung.</li>
           <li><strong>Keine Analyse, kein Tracking.</strong> Diese App sammelt keine Nutzungsdaten und sendet nichts an Dritte.</li>
         </ul>

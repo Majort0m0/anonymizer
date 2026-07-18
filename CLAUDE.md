@@ -148,8 +148,8 @@ callers of `analyze*`/`finalize`.
    overlapping candidates that never make it into the output text.
 4. **Deep-check** (`app/pipeline/deep_check.py`, optional, toggled by
    `PipelineOptions.deep_check`) — split into `find_candidates()` (the LLM call
-   + JSON parsing, run once during `analyze()` against a fully-redacted
-   preliminary text — see privacy invariant below), `summarize_candidate_categories()`
+   + JSON parsing, run once during `analyze()` **against the raw, unredacted
+   text** — see privacy invariant below), `summarize_candidate_categories()`
    (review-UI rows for deep-check's free-form categories like `SPITZNAME`), and
    `apply_candidates()` (the actual substring replacement, run during
    `finalize()`, re-deriving occurrence counts from whatever text it's given
@@ -159,11 +159,32 @@ callers of `analyze*`/`finalize`.
    structurally cannot catch (nicknames, role-based references, project code
    names) — it is not a general-purpose redundant NER pass, and won't
    necessarily catch a plain name Presidio simply missed (e.g. in table-like,
-   non-prose text).
+   non-prose text). `find_candidates()`'s prompt explicitly tells the model
+   the text is unredacted and to ignore obvious direct identifiers (full
+   names, addresses, emails, phone numbers) since Presidio's deterministic
+   pass already handles those — its job is only the indirect/contextual
+   clues Presidio structurally cannot resolve. `find_candidates()` used to be
+   run against a Presidio-pre-redacted "preliminary" text instead, purely as
+   an extra privacy precaution — dropped after real testing showed two
+   concrete costs and no compensating benefit (Ollama here is always the
+   local, never-networked instance either way): Presidio's own NER mistakes
+   could corrupt the very phrases the LLM needed to read intact (observed: a
+   mis-tagged `LOCATION` span ate part of an unrelated sentence containing a
+   nickname), and collapsing every distinct person in the document to the
+   same generic `[PERSON]` placeholder removed the LLM's ability to tell
+   WHICH person a nickname/role/context clue belonged to whenever a document
+   mentions more than one.
 5. **Summarize** (`app/pipeline/summarize.py`, only if `output_mode` includes a
    summary) — always given the *final* anonymized text (post-deep-check, if
    enabled, and post category-exclusion/pseudonymization), instructed to
-   preserve `[PLACEHOLDER]` redactions verbatim.
+   preserve `[PLACEHOLDER]` redactions verbatim. This is a correctness
+   requirement, not a privacy one: a summary of an "anonymized" document has
+   to summarize the actually-anonymized text, or it would leak exactly what
+   the user chose to redact. The one exception is `PipelineOptions.
+   anonymize=False` (see below), where `summarize_text()` is deliberately
+   called with `anonymized=False` against the raw original text instead —
+   that selects a different prompt that doesn't falsely claim placeholders
+   are present.
 6. **Render** (`app/pipeline/render_markdown.py`'s `render_transcript()` /
    `render_summary()`) — two independent functions, not one combined document:
    the summary is always a separate markdown file from the transcript, each
@@ -197,14 +218,57 @@ callers of `analyze*`/`finalize`.
    (favor over-redaction in the reusable-data output) but means the two output
    files' redaction is not always byte-for-byte aligned on identical input.
 
-**Privacy invariant across the analyze/finalize split**: `analyze()` runs
-deep-check's LLM call against a preliminary text redacted with *all* categories
-(no exclusions) — the user's later category choices affect only what appears in
-the final output, never what was sent to the local LLM. `PendingState` (raw
-text, Presidio results, deep-check candidates, and — for tabular sources —
-the original file's raw bytes) is held server-side in `app/server.py`'s
-`_pending` dict, keyed by a one-time-use token; it is never serialized to the
-frontend.
+**Privacy invariant across the analyze/finalize split** (revised — Ollama is
+always the local, never-networked instance, so "never sent to Ollama" was
+never actually the invariant that mattered; what matters is *what the user's
+later choices can affect*): `analyze()`'s deep-check call (`find_candidates()`)
+runs before the user has made any category-exclusion or person-mode choice —
+against the raw text, deliberately (see the "Deep-check" step above) — simply
+because those choices don't exist yet at that point in the flow, not because
+of any redaction requirement. `finalize()`'s two later deep-check sweeps
+(`find_missed_pii()`, `find_missed_locations()`) and `summarize_text()` (in
+the normal, anonymizing path) are different in kind, not just in timing: they
+are only ever given the true FINAL, fully-processed text (post
+category-exclusion, post person-mode) because their job is to audit or
+summarize the actual output — auditing or summarizing the original instead
+would defeat their entire purpose, independent of any privacy consideration.
+`PendingState` (raw text, Presidio results, deep-check candidates, and — for
+tabular sources — the original file's raw bytes) is held server-side in
+`app/server.py`'s `_pending` dict, keyed by a one-time-use token; it is never
+serialized to the frontend.
+
+**Optional "no anonymization" mode** (`PipelineOptions.anonymize`, default
+`True`): lets the user get a plain transcript/summary of the original text
+with no PII detection or redaction at all — for when they just want a
+Markdown-formatted copy or a summary and don't need anything redacted.
+`analyze()` and `finalize()` each have an early-exit branch
+(`state.anonymize_requested`, `_finalize_without_anonymization()`) taken
+before any Presidio/deep-check/column-classification work happens, rather
+than threading an `if anonymize` check through the existing redaction logic
+— this keeps the normal (already intricate) redaction path completely
+unchanged. Consequences of this mode, all deliberate:
+- `deep_check` is forced off (both `app/server.py`'s routes and
+  `analyze()` itself enforce this) — it's a contextual PII sweep, meaningless
+  once nothing is being redacted at all.
+- No structured re-export (xlsx/csv/json/ods) is produced — with nothing
+  redacted it would just be a byte-identical copy of the original file, not
+  worth producing.
+- The original filename is kept as-is (`anonymize_filename()` is skipped) —
+  it exists specifically to protect the *anonymized* output; there's nothing
+  to protect it from here.
+- If `output_mode` includes a summary, `summarize_text()` is called with the
+  raw, unredacted original text and `anonymized=False` (see "Summarize"
+  above) — the user explicitly chose this trade-off (sending raw text to the
+  local Ollama instance, never over the network) to get a summary without
+  forcing redaction first. There is intentionally no warning/caution UI
+  element for this — an explicit product decision, not an oversight; don't
+  add one.
+- `render_markdown.py`'s `_render_pii_audit()` shows a distinct message when
+  `anonymization_enabled=False` ("Anonymisierung war ... deaktiviert") rather
+  than the normal empty-result text ("keine personenbezogenen Daten
+  erkannt") — those are different claims (detection skipped vs. detection
+  ran and found nothing) and conflating them would misrepresent the audit
+  trail.
 
 **Output filenames**: `app/server.py`'s `_unique_filename()` builds
 `{sanitized source stem}{suffix_label}{extension}` (e.g.

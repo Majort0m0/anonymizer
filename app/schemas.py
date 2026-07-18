@@ -38,6 +38,10 @@ class SourceKind(str, Enum):
 
 class PipelineOptions(BaseModel):
     output_mode: OutputMode = OutputMode.BOTH
+    anonymize: bool = True  # False -> skip PII detection/redaction entirely,
+    # producing a plain transcript/summary of the original text (see
+    # app.pipeline.pipeline's module docstring). deep_check is meaningless
+    # without it and is forced off server-side when this is False.
     deep_check: bool = True
     language_hint: Optional[str] = None  # "de" | "en" | None -> auto-detect
 
@@ -78,6 +82,7 @@ class PendingAnalysis(BaseModel):
     source_filename: str
     detected_language: str
     output_mode: OutputMode
+    anonymize: bool
     deep_check: bool
     categories: list[DetectedCategory] = Field(default_factory=list)
 
@@ -110,6 +115,7 @@ class DownloadableFile(BaseModel):
 class PipelineResult(BaseModel):
     source_filename: str
     detected_language: str
+    anonymization_enabled: bool = True
     deep_check_enabled: bool = False
     anonymized_transcript: Optional[str] = None
     summary: Optional[str] = None
@@ -128,6 +134,7 @@ class ReplaceTextRequest(BaseModel):
 
     source_filename: str
     detected_language: str
+    anonymization_enabled: bool = True
     deep_check_enabled: bool = False
     anonymized_transcript: Optional[str] = None
     summary: Optional[str] = None
