@@ -90,6 +90,7 @@ import re
 from typing import Callable
 
 from app.llm.ollama_client import generate
+from app.pipeline.occurrences import OccurrenceRef, occurrences_for_text_match
 from app.schemas import AnonymizeResult, DetectedCategory, PiiEntity
 
 # Extraction/classification wants low-variance, systematic output rather than
@@ -514,68 +515,94 @@ def _run_candidate_pass(anonymized_text: str, system: str) -> list[dict]:
     return candidates
 
 
-def summarize_candidate_categories(candidates: list[dict]) -> list[DetectedCategory]:
-    """Aggregate find_candidates() output into review-UI-ready categories.
+def summarize_candidate_categories(
+    candidates: list[dict], raw_text: str, id_prefix: str = "dc"
+) -> tuple[list[DetectedCategory], dict[str, OccurrenceRef]]:
+    """Aggregate find_candidates() output into full per-occurrence review-UI
+    categories, plus the OccurrenceRef map finalize() needs to translate
+    chosen occurrence ids back into an exclusion (see app.pipeline.
+    occurrences). Every candidate's occurrences are (re-)found by scanning
+    `raw_text` fresh — find_candidates() itself only returns a text value and
+    an LLM-reported count, never positions.
 
-    Every row here is a deep-check finding: source="llm_deep_check" and
-    is_person=False always (deep-check never touches Presidio's PERSON
-    category — its findings are free-form labels like "SPITZNAME" or
-    "ROLLENBEZEICHNUNG").
+    `id_prefix` defaults to "dc" (deep-check); column_classifier.
+    summarize_column_categories() passes "col" instead so the two sources'
+    occurrence ids can never collide. Every row here is a deep-check finding:
+    source="llm_deep_check" and is_person=False always (deep-check never
+    touches Presidio's PERSON category — its findings are free-form labels
+    like "SPITZNAME" or "ROLLENBEZEICHNUNG").
     """
-    counts: dict[str, int] = {}
-    samples: dict[str, list[str]] = {}
+    by_category: dict[str, list] = {}
     order: list[str] = []
+    all_refs: dict[str, OccurrenceRef] = {}
 
-    for candidate in candidates:
+    for i, candidate in enumerate(candidates):
         category = candidate["category"]
         text = candidate["text"]
-        count = candidate["count"]
-
-        if category not in counts:
-            counts[category] = 0
-            samples[category] = []
+        occurrences, refs = occurrences_for_text_match(
+            f"{id_prefix}{i}", category, "llm_deep_check", text, raw_text
+        )
+        if not occurrences:
+            continue
+        if category not in by_category:
+            by_category[category] = []
             order.append(category)
-        counts[category] += count
-        if text not in samples[category] and len(samples[category]) < 3:
-            samples[category].append(text)
+        by_category[category].extend(occurrences)
+        all_refs.update(refs)
 
-    return [
+    categories = [
         DetectedCategory(
             category=category,
-            count=counts[category],
+            count=len(by_category[category]),
             source="llm_deep_check",
-            samples=samples[category],
+            occurrences=by_category[category],
             is_person=False,
         )
         for category in order
     ]
+    return categories, all_refs
 
 
 def apply_candidates(
     text: str,
     candidates: list[dict],
     excluded_categories: set | None = None,
+    excluded_occurrence_ids: set[str] | None = None,
     source: str = "llm_deep_check",
     person_replacer: Callable[[str], str] | None = None,
     person_category: str | None = None,
+    id_prefix: str = "dc",
 ) -> AnonymizeResult:
     """Actually redact find_candidates()/find_missed_pii() (or
     column_classifier.extract_column_candidates()) output against `text`.
 
     `text` may not be byte-identical to whatever the candidates were found
     against (the user may have excluded some Presidio categories between the
-    "analyze" and "finalize" steps, changing surrounding text), so occurrence
-    counts are re-derived from `text` here rather than trusting the stored
-    "count". A candidate whose category is in `excluded_categories` is left
-    untouched; a candidate that no longer occurs in `text` at all is skipped
-    silently, matching this module's existing graceful-degradation behavior.
+    "analyze" and "finalize" steps, changing surrounding text, or — for the
+    main-text call — Presidio's own redaction already ran first), so every
+    occurrence position is re-found fresh against `text` here rather than
+    trusting any stored offset. A candidate whose category is in
+    `excluded_categories` is left untouched entirely; otherwise, an
+    individual occurrence is left untouched if its id ("<id_prefix><candidate
+    index>:<ordinal>", see app.pipeline.occurrences — matching exactly what
+    summarize_candidate_categories()/column_classifier.
+    summarize_column_categories() assigned it, since both iterate the SAME
+    `candidates` list in the SAME order) is in `excluded_occurrence_ids`.
+    Occurrences are replaced right-to-left (within each candidate) so
+    replacing one doesn't shift the offsets of the ones still to come.
+    Omitting `excluded_occurrence_ids` (the default) redacts every occurrence
+    of every non-excluded-category candidate, unchanged from this function's
+    original behavior — the per-cell structured re-export and the post-
+    review find_missed_pii()/find_missed_locations() passes rely on exactly
+    this, since neither has occurrence ids that mean anything in their
+    context (see pipeline.finalize()).
 
     `candidates` is expected in longest-substring-first order (both
-    find_candidates() and find_missed_pii() sort this way), which is
-    preserved (not re-sorted) here. `source` is stamped onto the returned
-    PiiEntity rows so the audit table can distinguish which LLM pass found
-    what — the default matches find_candidates()'s original single-pass
-    behavior; find_missed_pii() results should pass a different label.
+    find_candidates() and find_missed_pii() sort this way) — preserved, not
+    re-sorted, here. `source` is stamped onto the returned PiiEntity rows so
+    the audit table can distinguish which LLM pass found what — the default
+    matches find_candidates()'s original single-pass behavior; find_missed_
+    pii() results should pass a different label.
 
     `person_replacer`/`person_category` are for column_classifier's
     PERSON_SPALTE candidates specifically: when given and a candidate's
@@ -588,26 +615,39 @@ def apply_candidates(
     different labels for the same real person. Omit both (the default) to
     get the original flat-label behavior for every candidate, unchanged.
     """
-    excluded = excluded_categories or set()
+    excluded_categories = excluded_categories or set()
+    excluded_occurrence_ids = excluded_occurrence_ids or set()
 
     result_text = text
     counts: dict[str, int] = {}
-    for candidate in candidates:
+    for i, candidate in enumerate(candidates):
         category = candidate["category"]
-        if category in excluded:
+        if category in excluded_categories:
             continue
 
         raw_text = candidate["text"]
-        occurrences = result_text.count(raw_text)
-        if occurrences == 0:
+        matches = list(re.finditer(re.escape(raw_text), result_text))
+        if not matches:
+            continue
+
+        occ_prefix = f"{id_prefix}{i}"
+        included = [
+            match
+            for ordinal, match in enumerate(matches)
+            if f"{occ_prefix}:{ordinal}" not in excluded_occurrence_ids
+        ]
+        if not included:
             continue
 
         if person_replacer is not None and category == person_category:
             replacement = person_replacer(raw_text)
         else:
             replacement = f"[{category}]"
-        result_text = result_text.replace(raw_text, replacement)
-        counts[category] = counts.get(category, 0) + occurrences
+        # Right-to-left so replacing one occurrence never shifts the start
+        # offset of an occurrence still to be replaced.
+        for match in sorted(included, key=lambda m: -m.start()):
+            result_text = result_text[: match.start()] + replacement + result_text[match.end() :]
+        counts[category] = counts.get(category, 0) + len(included)
 
     entities = [
         PiiEntity(entity_type=category, count=count, source=source)

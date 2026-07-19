@@ -36,11 +36,10 @@ import io
 import json
 import re
 
+from app.pipeline.occurrences import OccurrenceRef, occurrences_for_text_match
 from app.schemas import DetectedCategory
 
 _NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
-
-_MAX_SAMPLES_PER_CATEGORY = 3
 
 
 def _normalize_header(header: str) -> str:
@@ -296,15 +295,18 @@ def extract_column_candidates(source_bytes: bytes, source_suffix: str) -> list[d
     return candidates
 
 
-def summarize_column_categories(candidates: list[dict], raw_text: str) -> list[DetectedCategory]:
-    """Aggregate extract_column_candidates() output into review-UI-ready
-    categories, for the pre-finalize review UI — mirrors deep_check.
-    summarize_candidate_categories(), except counts are derived by counting
-    each candidate's occurrences in `raw_text` (the flattened transcript
-    text), since — unlike deep-check's LLM-sourced candidates — these never
-    carry a count of their own (extract_column_candidates() only knows the
-    original structured bytes, not the flattened text it'll be counted
-    against).
+def summarize_column_categories(
+    candidates: list[dict], raw_text: str
+) -> tuple[list[DetectedCategory], dict[str, OccurrenceRef]]:
+    """Aggregate extract_column_candidates() output into full per-occurrence
+    review-UI categories, for the pre-finalize review UI — mirrors
+    deep_check.summarize_candidate_categories() exactly (including the
+    id_prefix="col" so this source's occurrence ids can never collide with
+    deep-check's own "dc"-prefixed ones), except occurrences are found by
+    scanning `raw_text` (the flattened transcript text) directly, since —
+    unlike deep-check's LLM-sourced candidates — these never carry a count of
+    their own (extract_column_candidates() only knows the original structured
+    bytes, not the flattened text it'll be matched against).
 
     is_person is always False here — NOT because person_mode never applies
     to PERSON_SPALTE (pipeline.py's finalize() DOES route it through the same
@@ -320,32 +322,30 @@ def summarize_column_categories(candidates: list[dict], raw_text: str) -> list[D
     fall back to the flat "[PERSON_SPALTE]" label even in numbered/
     pseudonymize mode — an accepted, narrow edge case rather than a
     confusing dual-toggle UI for the common case."""
-    counts: dict[str, int] = {}
-    samples: dict[str, list[str]] = {}
+    by_category: dict[str, list] = {}
     order: list[str] = []
+    all_refs: dict[str, OccurrenceRef] = {}
 
-    for candidate in candidates:
+    for i, candidate in enumerate(candidates):
         category = candidate["category"]
         text = candidate["text"]
-        occurrences = raw_text.count(text)
-        if occurrences == 0:
+        occurrences, refs = occurrences_for_text_match(f"col{i}", category, "column_header", text, raw_text)
+        if not occurrences:
             continue
-
-        if category not in counts:
-            counts[category] = 0
-            samples[category] = []
+        if category not in by_category:
+            by_category[category] = []
             order.append(category)
-        counts[category] += occurrences
-        if text not in samples[category] and len(samples[category]) < _MAX_SAMPLES_PER_CATEGORY:
-            samples[category].append(text)
+        by_category[category].extend(occurrences)
+        all_refs.update(refs)
 
-    return [
+    categories = [
         DetectedCategory(
             category=category,
-            count=counts[category],
+            count=len(by_category[category]),
             source="column_header",
-            samples=samples[category],
+            occurrences=by_category[category],
             is_person=False,
         )
         for category in order
     ]
+    return categories, all_refs

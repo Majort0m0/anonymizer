@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Anonymizer.app + a distributable .dmg for macOS.
+# Build AnonyMeister.app + a distributable .dmg for macOS.
 #
 # Run from the repo root: ./scripts/build_macos.sh
 # Requires PyInstaller on the active Python (a project .venv set up per
@@ -14,9 +14,9 @@ if [ -d .venv ]; then
 fi
 
 echo "==> Running PyInstaller..."
-pyinstaller --clean --noconfirm anonymizer.spec
+pyinstaller --clean --noconfirm anonymeister.spec
 
-APP="dist/Anonymizer.app"
+APP="dist/AnonyMeister.app"
 
 # Files fetched by pip (spaCy models, wheels, ...) — and, on some machines,
 # every file a build process creates at all — can carry macOS's
@@ -41,12 +41,12 @@ else
 fi
 
 echo "==> Building .dmg..."
-DMG_NAME="Anonymizer-macOS.dmg"
+DMG_NAME="AnonyMeister-macOS.dmg"
 rm -f "dist/$DMG_NAME"
-hdiutil create -volname "Anonymizer" -srcfolder "$APP" -ov -format UDZO "dist/$DMG_NAME"
+hdiutil create -volname "AnonyMeister" -srcfolder "$APP" -ov -format UDZO "dist/$DMG_NAME"
 
 echo
-echo "Done: dist/Anonymizer.app and dist/$DMG_NAME"
+echo "Done: dist/AnonyMeister.app and dist/$DMG_NAME"
 echo "Note: this is an ad-hoc signature (not notarized by Apple) — first"
 echo "launch on another Mac will need a right-click > Open, or"
-echo "'xattr -cr /Applications/Anonymizer.app' if Gatekeeper reports it as damaged."
+echo "'xattr -cr /Applications/AnonyMeister.app' if Gatekeeper reports it as damaged."

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build an AppImage for Anonymizer on Linux.
+# Build an AppImage for AnonyMeister on Linux.
 #
 # Run from the repo root: ./scripts/build_linux.sh
 # Requires PyInstaller on the active Python (a project .venv set up per
@@ -29,9 +29,9 @@ if [ -d .venv ]; then
 fi
 
 echo "==> Running PyInstaller..."
-pyinstaller --clean --noconfirm anonymizer.spec
+pyinstaller --clean --noconfirm anonymeister.spec
 
-DIST_DIR="dist/Anonymizer"
+DIST_DIR="dist/AnonyMeister"
 APPDIR="dist/AppDir"
 
 echo "==> Assembling AppDir..."
@@ -40,8 +40,8 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/i
 cp -R "$DIST_DIR/." "$APPDIR/usr/bin/"
 
 # A minimal placeholder icon (this repo ships no dedicated app icon) — swap
-# in a real one at AppDir/anonymizer.png before distributing if you have one.
-python3 - "$APPDIR/anonymizer.png" <<'PYEOF'
+# in a real one at AppDir/anonymeister.png before distributing if you have one.
+python3 - "$APPDIR/anonymeister.png" <<'PYEOF'
 import sys
 from PIL import Image, ImageDraw
 
@@ -51,23 +51,23 @@ draw = ImageDraw.Draw(img)
 draw.text((128, 128), "A", fill=(255, 255, 255, 255), anchor="mm")
 img.save(path)
 PYEOF
-cp "$APPDIR/anonymizer.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/anonymizer.png"
+cp "$APPDIR/anonymeister.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/anonymeister.png"
 
-cat > "$APPDIR/usr/share/applications/anonymizer.desktop" <<EOF
+cat > "$APPDIR/usr/share/applications/anonymeister.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Anonymizer
+Name=AnonyMeister
 Comment=Dokumente & Audio lokal anonymisieren
-Exec=Anonymizer
-Icon=anonymizer
+Exec=AnonyMeister
+Icon=anonymeister
 Categories=Office;Utility;
 EOF
-cp "$APPDIR/usr/share/applications/anonymizer.desktop" "$APPDIR/anonymizer.desktop"
+cp "$APPDIR/usr/share/applications/anonymeister.desktop" "$APPDIR/anonymeister.desktop"
 
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
-exec "${HERE}/usr/bin/Anonymizer" "$@"
+exec "${HERE}/usr/bin/AnonyMeister" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
@@ -80,10 +80,10 @@ if [ ! -x "$APPIMAGETOOL" ]; then
 fi
 
 echo "==> Building AppImage..."
-ARCH=x86_64 "$APPIMAGETOOL" "$APPDIR" "dist/Anonymizer-x86_64.AppImage"
+ARCH=x86_64 "$APPIMAGETOOL" "$APPDIR" "dist/AnonyMeister-x86_64.AppImage"
 
 echo
-echo "Done: dist/Anonymizer-x86_64.AppImage"
+echo "Done: dist/AnonyMeister-x86_64.AppImage"
 echo "Reminder: users need WebKit2GTK + PyGObject installed system-wide for"
 echo "the app window to open at all — see the comment at the top of this"
 echo "script for the exact package names per distro."

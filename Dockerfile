@@ -1,4 +1,4 @@
-# Anonymizer — backend-only container image.
+# AnonyMeister — backend-only container image.
 #
 # The native desktop app wraps this same FastAPI backend in a pywebview
 # window; a container has no native GUI, so this image runs just the backend

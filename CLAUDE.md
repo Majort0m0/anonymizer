@@ -21,9 +21,9 @@ uvicorn app.server:app --host 127.0.0.1 --port 8765
 # Package a native installer (macOS verified; Windows/Linux written but
 # unverified locally — see "Packaging" below)
 uv pip install -r requirements-build.txt
-./scripts/build_macos.sh        # -> dist/Anonymizer.app, dist/Anonymizer-macOS.dmg
-.\scripts\build_windows.ps1     # -> dist/Anonymizer/Anonymizer.exe (+ installer if Inno Setup present)
-./scripts/build_linux.sh        # -> dist/Anonymizer-x86_64.AppImage
+./scripts/build_macos.sh        # -> dist/AnonyMeister.app, dist/AnonyMeister-macOS.dmg
+.\scripts\build_windows.ps1     # -> dist/AnonyMeister/AnonyMeister.exe (+ installer if Inno Setup present)
+./scripts/build_linux.sh        # -> dist/AnonyMeister-x86_64.AppImage
 
 # Docker (backend only — no native window in a container)
 docker compose up -d            # -> http://localhost:8765
@@ -419,7 +419,7 @@ checking it still fits around that height. This is desktop/laptop-landscape
 only by explicit product decision — no attempt is made to support portrait
 or phone-sized viewports.
 
-`anonymizer.spec` is the single PyInstaller spec for all three OSes — its
+`anonymeister.spec` is the single PyInstaller spec for all three OSes — its
 `Analysis`/`EXE`/`COLLECT` blocks are platform-generic (PyInstaller resolves
 platform differences internally when *run on* that OS; it cannot
 cross-compile, so each platform's build must actually execute there — see
@@ -441,10 +441,10 @@ dir; writing generated files there breaks code signing and typically isn't
 writable once properly installed (e.g. `/Applications`, `Program Files`).
 `app/config.py`'s `_default_output_dir()` checks `sys.frozen` (set by
 PyInstaller's bootloader) and points at a platform-appropriate user data dir
-instead (`~/Library/Application Support/Anonymizer` on macOS, `%APPDATA%`
+instead (`~/Library/Application Support/AnonyMeister` on macOS, `%APPDATA%`
 on Windows, `$XDG_DATA_HOME`/`~/.local/share` on Linux) — verified by building,
 running the frozen macOS app, and confirming output actually lands there
-instead of inside `Anonymizer.app/Contents/Resources/output/`.
+instead of inside `AnonyMeister.app/Contents/Resources/output/`.
 
 **macOS ad-hoc codesigning can fail with "resource fork, Finder information,
 or similar detritus not allowed"** even after `xattr -cr` on the bundle, and
@@ -493,7 +493,7 @@ AppImage. `scripts/build_linux.sh` documents the exact package names
 pretending this is a non-issue.
 
 **Windows/Linux builds are unverified.** `scripts/build_windows.ps1` +
-`scripts/anonymizer-installer.iss` (Inno Setup) and `scripts/build_linux.sh`
+`scripts/anonymeister-installer.iss` (Inno Setup) and `scripts/build_linux.sh`
 were written from the same working macOS spec and PyInstaller's documented
 cross-platform behavior, but there was no Windows or Linux machine available
 to actually run them. `.github/workflows/build.yml`'s matrix (macOS/Windows/

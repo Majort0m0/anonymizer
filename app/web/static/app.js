@@ -34,7 +34,75 @@ const CATEGORY_LABELS = {
   CREDIT_CARD: "Kreditkarten",
 };
 
-// --- Phase 1: input ---------------------------------------------------------
+// --- Step bar / wizard navigation ------------------------------------------
+//
+// Four steps (Eingabe / Optionen / Kategorien prüfen / Ergebnis), one visible
+// at a time inside #stage. currentStep is whichever the user is looking at;
+// maxReachedStep is how far the actual pipeline has progressed (analyze/
+// finalize) — the step bar only lets you jump back to an already-reached
+// step, never ahead of it, since a later step's content doesn't exist yet.
+
+const stepPanels = document.querySelectorAll(".step-panel");
+const stepNodes = document.querySelectorAll(".step-node");
+const stepConnectors = document.querySelectorAll(".step-connector");
+const loadingOverlay = document.getElementById("loading-overlay");
+
+let currentStep = 1;
+let maxReachedStep = 1;
+
+function renderStepBar() {
+  stepNodes.forEach((node) => {
+    const n = Number(node.dataset.step);
+    const btn = node.querySelector(".step-btn");
+    node.classList.toggle("current", n === currentStep);
+    node.classList.toggle("done", n < currentStep || (n <= maxReachedStep && n !== currentStep));
+    btn.disabled = n > maxReachedStep;
+  });
+  stepConnectors.forEach((conn, i) => {
+    conn.classList.toggle("done", (i + 1) < maxReachedStep || (i + 1) < currentStep);
+  });
+}
+
+function showPanel(step) {
+  stepPanels.forEach((panel) => {
+    if (panel === loadingOverlay) return;
+    panel.classList.toggle("hidden", Number(panel.dataset.panel) !== step);
+  });
+  loadingOverlay.classList.add("hidden");
+}
+
+function goToStep(n) {
+  if (n > maxReachedStep) return;
+  currentStep = n;
+  showPanel(n);
+  renderStepBar();
+}
+
+function showLoadingOverlay() {
+  stepPanels.forEach((panel) => panel.classList.add("hidden"));
+  loadingOverlay.classList.remove("hidden");
+}
+
+document.querySelectorAll("[data-goto]").forEach((el) => {
+  el.addEventListener("click", () => goToStep(Number(el.dataset.goto)));
+});
+
+// --- Global error banner ----------------------------------------------------
+
+const errorBox = document.getElementById("error-box");
+const errorText = document.getElementById("error-text");
+
+function showError(message) {
+  errorText.textContent = message;
+  errorBox.classList.remove("hidden");
+}
+
+function hideError() {
+  errorBox.classList.add("hidden");
+  errorText.textContent = "";
+}
+
+// --- Step 1: Eingabe --------------------------------------------------------
 
 const inputChooser = document.getElementById("input-chooser");
 const dropzone = document.getElementById("dropzone");
@@ -48,106 +116,21 @@ const clipboardPreviewWrap = document.getElementById("clipboard-preview-wrap");
 const clipboardPreview = document.getElementById("clipboard-preview");
 const clipboardClearBtn = document.getElementById("clipboard-clear-btn");
 
-const anonymizeToggle = document.getElementById("anonymize-toggle");
-const deepCheckRow = document.getElementById("deep-check-row");
-const deepCheckToggle = document.getElementById("deep-check-toggle");
-const outputModeRadios = document.querySelectorAll('input[name="output-mode"]');
-
-const segmentedOptions = document.querySelectorAll(".segmented-option");
-
-const analyzeBtn = document.getElementById("analyze-btn");
-const analyzeHint = document.getElementById("analyze-hint");
-const loadingBox = document.getElementById("loading");
-const loadingBarFill = document.getElementById("loading-bar-fill");
-const loadingStageLabel = document.getElementById("loading-stage-label");
-const loadingEta = document.getElementById("loading-eta");
-const errorBox = document.getElementById("error-box");
-const errorText = document.getElementById("error-text");
-
-// --- Main content column (empty state / category review / result) ---------
-
-const emptyState = document.getElementById("empty-state");
-
-const reviewCard = document.getElementById("review-card");
-const reviewFilename = document.getElementById("review-filename");
-const reviewLanguage = document.getElementById("review-language");
-const reviewEmpty = document.getElementById("review-empty");
-const reviewList = document.getElementById("review-list");
-const finalizeBtn = document.getElementById("finalize-btn");
-const reviewRestartBtn = document.getElementById("review-restart-btn");
-const finalizeLoading = document.getElementById("finalize-loading");
-const finalizeBarFill = document.getElementById("finalize-bar-fill");
-const finalizeStageLabel = document.getElementById("finalize-stage-label");
-const finalizeEta = document.getElementById("finalize-eta");
-
-// --- Phase 3: result ---------------------------------------------------------
-
-const resultCard = document.getElementById("result-card");
-const piiAuditBox = document.getElementById("pii-audit");
-const piiAuditList = document.getElementById("pii-audit-list");
-const resultFilename = document.getElementById("result-filename");
-const resultLanguage = document.getElementById("result-language");
-const resultTranscriptWrap = document.getElementById("result-transcript-wrap");
-const resultTranscript = document.getElementById("result-transcript");
-const resultSummaryWrap = document.getElementById("result-summary-wrap");
-const resultSummary = document.getElementById("result-summary");
-const resultDownloads = document.getElementById("result-downloads");
-const resultNewDocumentBtn = document.getElementById("result-new-document-btn");
-
-// Holds the current PipelineResult (from finalize or a previous replace) so
-// find/replace requests have the text + metadata they need to send back —
-// see performReplace().
-let currentResult = null;
-
-// --- Find & replace ------------------------------------------------------
-
-const findReplaceToggle = document.getElementById("find-replace-toggle");
-const findReplacePanel = document.getElementById("find-replace-panel");
-const findReplaceSearch = document.getElementById("find-replace-search");
-const findReplaceReplacement = document.getElementById("find-replace-replacement");
-const findReplaceCaseToggle = document.getElementById("find-replace-case-toggle");
-const findReplaceOneBtn = document.getElementById("find-replace-one-btn");
-const findReplaceAllBtn = document.getElementById("find-replace-all-btn");
-const findReplaceStatus = document.getElementById("find-replace-status");
-
-// --- Help modal ---------------------------------------------------------------
-
-const helpBtn = document.getElementById("help-btn");
-const helpModal = document.getElementById("help-modal");
-const helpModalClose = document.getElementById("help-modal-close");
-
-// --- System status ------------------------------------------------------------
-
-const statusToggle = document.getElementById("status-toggle");
-const statusToggleIcon = document.getElementById("status-toggle-icon");
-const statusPanel = document.getElementById("status-panel");
-const statusLoading = document.getElementById("status-loading");
-const dependencyList = document.getElementById("dependency-list");
-
-const MODEL_PICKER_CUSTOM_VALUE = "__custom__";
+const step1NextBtn = document.getElementById("step1-next-btn");
 
 let selectedFile = null;
-
-// Carries the pending-analysis token and its categories from phase 2 render
-// through to the finalize call. Cleared on "Neu starten" and once finalize
-// has consumed the token (a token can only be used once server-side anyway).
-let currentToken = null;
-let currentCategories = [];
 
 function hasClipboardText() {
   return clipboardPreview.value.trim().length > 0;
 }
 
 // Once a file or clipboard text is chosen, the dropzone/"oder"/clipboard-button
-// picker UI has served its purpose and just eats vertical space that the
-// options/analyze cards below need (this used to force scrolling to reach
-// "Analysieren" on shorter windows) — collapse it and rely on the compact
+// picker UI has served its purpose — collapse it and rely on the compact
 // file-chosen/clipboard-preview-wrap rows to show what's selected instead.
-// Clearing the selection (or restarting) brings the picker back.
-function updateAnalyzeButtonState() {
+// Clearing the selection brings the picker back.
+function updateStep1Readiness() {
   const ready = selectedFile !== null || hasClipboardText();
-  analyzeBtn.disabled = !ready;
-  analyzeHint.classList.toggle("hidden", ready);
+  step1NextBtn.disabled = !ready;
   inputChooser.classList.toggle("hidden", ready);
 }
 
@@ -159,7 +142,7 @@ function isAcceptedFile(file) {
 function clearClipboardText() {
   clipboardPreview.value = "";
   clipboardPreviewWrap.classList.add("hidden");
-  updateAnalyzeButtonState();
+  updateStep1Readiness();
 }
 
 function clearSelectedFile() {
@@ -167,7 +150,7 @@ function clearSelectedFile() {
   fileInput.value = "";
   fileChosen.classList.add("hidden");
   fileChosenName.textContent = "";
-  updateAnalyzeButtonState();
+  updateStep1Readiness();
 }
 
 function setSelectedFile(file) {
@@ -182,56 +165,8 @@ function setSelectedFile(file) {
   fileChosenName.textContent = file.name;
   fileChosen.classList.remove("hidden");
   hideError();
-  updateAnalyzeButtonState();
+  updateStep1Readiness();
 }
-
-function showError(message) {
-  errorText.textContent = message;
-  errorBox.classList.remove("hidden");
-}
-
-function hideError() {
-  errorBox.classList.add("hidden");
-  errorText.textContent = "";
-}
-
-// --- Phase switching ---------------------------------------------------------
-//
-// The sidebar (input/options/action/status) is always visible — it's a
-// persistent control panel, not a "phase" that gets hidden. Only the main
-// content column switches between the empty state, category review, and
-// the result.
-
-function showEmptyState() {
-  emptyState.classList.remove("hidden");
-}
-
-function hideEmptyState() {
-  emptyState.classList.add("hidden");
-}
-
-// Full reset back to the empty main-content state: discards any pending
-// (unfinalized) token client-side (the server-side entry just becomes
-// unused until app restart, which is fine) and clears both input methods.
-function resetToInputPhase() {
-  currentToken = null;
-  currentCategories = [];
-  currentResult = null;
-  reviewList.innerHTML = "";
-  reviewCard.classList.add("hidden");
-  resultCard.classList.add("hidden");
-  findReplaceSearch.value = "";
-  findReplaceReplacement.value = "";
-  setFindReplaceStatus("");
-  findReplacePanel.classList.add("hidden");
-  findReplaceToggle.setAttribute("aria-expanded", "false");
-  clearSelectedFile();
-  clearClipboardText();
-  hideError();
-  showEmptyState();
-}
-
-// --- Dropzone -------------------------------------------------------------
 
 dropzone.addEventListener("click", () => fileInput.click());
 
@@ -268,8 +203,6 @@ fileInput.addEventListener("change", () => {
 
 fileClearBtn.addEventListener("click", clearSelectedFile);
 
-// --- Clipboard --------------------------------------------------------------
-
 clipboardBtn.addEventListener("click", async () => {
   try {
     const text = await navigator.clipboard.readText();
@@ -281,7 +214,7 @@ clipboardBtn.addEventListener("click", async () => {
     clipboardPreview.value = text;
     clipboardPreviewWrap.classList.remove("hidden");
     hideError();
-    updateAnalyzeButtonState();
+    updateStep1Readiness();
   } catch (err) {
     showError(
       "Zugriff auf die Zwischenablage nicht möglich. Bitte Berechtigung erteilen oder den Text manuell einfügen."
@@ -289,10 +222,23 @@ clipboardBtn.addEventListener("click", async () => {
   }
 });
 
-clipboardPreview.addEventListener("input", updateAnalyzeButtonState);
+clipboardPreview.addEventListener("input", updateStep1Readiness);
 clipboardClearBtn.addEventListener("click", clearClipboardText);
 
-// --- Options ---------------------------------------------------------------
+step1NextBtn.addEventListener("click", () => {
+  if (step1NextBtn.disabled) return;
+  maxReachedStep = Math.max(maxReachedStep, 2);
+  goToStep(2);
+});
+
+// --- Step 2: Optionen --------------------------------------------------------
+
+const anonymizeToggle = document.getElementById("anonymize-toggle");
+const deepCheckRow = document.getElementById("deep-check-row");
+const deepCheckToggle = document.getElementById("deep-check-toggle");
+const outputModeRadios = document.querySelectorAll('input[name="output-mode"]');
+const segmentedOptions = document.querySelectorAll(".segmented-option");
+const analyzeBtn = document.getElementById("analyze-btn");
 
 function getOutputMode() {
   for (const radio of outputModeRadios) {
@@ -358,7 +304,13 @@ function formatCategoryLabel(category) {
 // until the job reports done, updating a progress bar + calibrated ETA (see
 // app/progress_calibration.py) as it goes, and returns the job's `result`
 // (shaped exactly like the old synchronous response body used to be) once
-// finished — so the caller's post-processing is otherwise unchanged.
+// finished. Both the analyze->step3 and finalize->step4 transitions reuse
+// the SAME loading-overlay elements — only one of them is ever in flight at
+// a time, since the wizard's steps are mutually exclusive.
+
+const loadingBarFill = document.getElementById("loading-bar-fill");
+const loadingStageLabel = document.getElementById("loading-stage-label");
+const loadingEta = document.getElementById("loading-eta");
 
 const PROGRESS_POLL_INTERVAL_MS = 700;
 
@@ -420,7 +372,7 @@ async function pollProgress(jobId, { fillEl, labelEl, etaEl }) {
   }
 }
 
-// --- Phase 1 -> 2: analyze ---------------------------------------------------
+// --- Step 2 -> 3: analyze ---------------------------------------------------
 
 async function analyzeFile(file, outputMode, anonymize, deepCheck) {
   const formData = new FormData();
@@ -454,10 +406,7 @@ analyzeBtn.addEventListener("click", async () => {
   if (analyzeBtn.disabled) return;
 
   hideError();
-  hideEmptyState();
-  reviewCard.classList.add("hidden");
-  resultCard.classList.add("hidden");
-  loadingBox.classList.remove("hidden");
+  showLoadingOverlay();
   resetProgressUI(loadingBarFill, loadingStageLabel, loadingEta);
   analyzeBtn.disabled = true;
 
@@ -476,6 +425,7 @@ analyzeBtn.addEventListener("click", async () => {
     const data = await response.json();
 
     if (!response.ok) {
+      goToStep(2);
       showError(data.error || "Unbekannter Fehler bei der Analyse.");
       return;
     }
@@ -487,16 +437,28 @@ analyzeBtn.addEventListener("click", async () => {
     });
     renderCategories(result);
   } catch (err) {
+    goToStep(2);
     showError(
       err.message || "Verbindung zum lokalen Server fehlgeschlagen. Bitte erneut versuchen."
     );
   } finally {
-    loadingBox.classList.add("hidden");
-    updateAnalyzeButtonState();
+    analyzeBtn.disabled = false;
   }
 });
 
-// --- Phase 2: category review -----------------------------------------------
+// --- Step 3: Kategorien prüfen (full occurrence checklist) ------------------
+
+const reviewFilename = document.getElementById("review-filename");
+const reviewLanguage = document.getElementById("review-language");
+const reviewEmpty = document.getElementById("review-empty");
+const reviewList = document.getElementById("review-list");
+const finalizeBtn = document.getElementById("finalize-btn");
+
+// Carries the pending-analysis token and its categories from step 3's render
+// through to the finalize call. Cleared once finalize has consumed the token
+// (a token can only be used once server-side anyway) or on "Neues Dokument".
+let currentToken = null;
+let currentCategories = [];
 
 function updateSegmentedSelected(segmented) {
   for (const option of segmented.querySelectorAll(".segmented-option")) {
@@ -533,6 +495,9 @@ const PERSON_MODE_DESCRIPTIONS = {
   pseudonymize: "Ersetzt Namen durch erfundene, aber konsistente Fantasienamen.",
 };
 
+// The person-mode toggle sits ABOVE the occurrence list (built below it in
+// the DOM here, but see styles.css: it's placed before .occurrence-list) so
+// it never scrolls out of view on a category with many occurrences.
 function buildPersonToggle() {
   const wrap = document.createElement("div");
   wrap.className = "review-person-toggle";
@@ -563,6 +528,22 @@ function buildPersonToggle() {
   return wrap;
 }
 
+function buildOccurrenceSnippet(occurrence) {
+  const span = document.createElement("span");
+  span.className = "occurrence-snippet";
+  span.append(occurrence.context_before);
+  const mark = document.createElement("mark");
+  mark.textContent = occurrence.text;
+  span.appendChild(mark);
+  span.append(occurrence.context_after);
+  return span;
+}
+
+// Every matched text span gets its own checkbox (dataset.occurrenceId, read
+// by getExcludedOccurrenceIds() below) — the category's own checkbox is a
+// "select all" control: checked when every occurrence is included,
+// indeterminate when some are, and toggling it flips every occurrence at
+// once.
 function buildCategoryRow(category) {
   const li = document.createElement("li");
   li.className = "review-item";
@@ -574,10 +555,10 @@ function buildCategoryRow(category) {
   const header = document.createElement("label");
   header.className = "review-item-header";
 
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.className = "review-item-checkbox";
-  checkbox.checked = true;
+  const masterCheckbox = document.createElement("input");
+  masterCheckbox.type = "checkbox";
+  masterCheckbox.className = "review-item-checkbox";
+  masterCheckbox.checked = true;
 
   const labelSpan = document.createElement("span");
   labelSpan.className = "review-item-label";
@@ -591,15 +572,8 @@ function buildCategoryRow(category) {
   sourceSpan.className = "review-item-source";
   sourceSpan.textContent = formatSourceLabel(category.source);
 
-  header.append(checkbox, labelSpan, countSpan, sourceSpan);
+  header.append(masterCheckbox, labelSpan, countSpan, sourceSpan);
   li.appendChild(header);
-
-  if (category.samples && category.samples.length > 0) {
-    const samples = document.createElement("p");
-    samples.className = "review-item-samples";
-    samples.textContent = `Beispiele: ${category.samples.join(", ")}`;
-    li.appendChild(samples);
-  }
 
   let personToggle = null;
   if (category.is_person) {
@@ -607,10 +581,40 @@ function buildCategoryRow(category) {
     li.appendChild(personToggle);
   }
 
-  checkbox.addEventListener("change", () => {
-    if (personToggle) {
-      setPersonToggleEnabled(personToggle, checkbox.checked);
-    }
+  const occurrenceList = document.createElement("ul");
+  occurrenceList.className = "occurrence-list";
+  const occurrenceCheckboxes = [];
+
+  function updateMasterCheckbox() {
+    const total = occurrenceCheckboxes.length;
+    const checkedCount = occurrenceCheckboxes.filter((cb) => cb.checked).length;
+    masterCheckbox.checked = checkedCount === total;
+    masterCheckbox.indeterminate = checkedCount > 0 && checkedCount < total;
+    if (personToggle) setPersonToggleEnabled(personToggle, checkedCount > 0);
+  }
+
+  for (const occurrence of category.occurrences) {
+    const occurrenceItem = document.createElement("li");
+    occurrenceItem.className = "occurrence-item";
+    const occurrenceLabel = document.createElement("label");
+    const occurrenceCheckbox = document.createElement("input");
+    occurrenceCheckbox.type = "checkbox";
+    occurrenceCheckbox.checked = true;
+    occurrenceCheckbox.dataset.occurrenceId = occurrence.id;
+    occurrenceCheckbox.addEventListener("change", updateMasterCheckbox);
+    occurrenceCheckboxes.push(occurrenceCheckbox);
+    occurrenceLabel.appendChild(occurrenceCheckbox);
+    occurrenceLabel.appendChild(buildOccurrenceSnippet(occurrence));
+    occurrenceItem.appendChild(occurrenceLabel);
+    occurrenceList.appendChild(occurrenceItem);
+  }
+  li.appendChild(occurrenceList);
+
+  masterCheckbox.addEventListener("change", () => {
+    const newValue = masterCheckbox.checked;
+    for (const checkbox of occurrenceCheckboxes) checkbox.checked = newValue;
+    masterCheckbox.indeterminate = false;
+    if (personToggle) setPersonToggleEnabled(personToggle, newValue);
   });
 
   return li;
@@ -645,24 +649,23 @@ function renderCategories(pending) {
     reviewEmpty.classList.add("hidden");
     reviewList.classList.remove("hidden");
     finalizeBtn.textContent = "Anonymisierung anwenden";
+    // Categories arrive already sorted PERSON-first by the backend (see
+    // app.pipeline.pipeline.analyze()) — rendered in that order as-is.
     for (const category of currentCategories) {
       reviewList.appendChild(buildCategoryRow(category));
     }
   }
 
-  hideEmptyState();
-  resultCard.classList.add("hidden");
-  reviewCard.classList.remove("hidden");
-  reviewCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  maxReachedStep = Math.max(maxReachedStep, 3);
+  currentStep = 3;
+  showPanel(3);
+  renderStepBar();
 }
 
-function getExcludedCategories() {
+function getExcludedOccurrenceIds() {
   const excluded = [];
-  for (const item of reviewList.querySelectorAll(".review-item")) {
-    const checkbox = item.querySelector(".review-item-checkbox");
-    if (!checkbox.checked) {
-      excluded.push(item.dataset.category);
-    }
+  for (const checkbox of reviewList.querySelectorAll(".occurrence-item input[type=checkbox]")) {
+    if (!checkbox.checked) excluded.push(checkbox.dataset.occurrenceId);
   }
   return excluded;
 }
@@ -670,24 +673,23 @@ function getExcludedCategories() {
 function getPersonMode() {
   const personItem = reviewList.querySelector('.review-item[data-is-person="true"]');
   if (!personItem) return "redact";
-  const checkbox = personItem.querySelector(".review-item-checkbox");
-  if (!checkbox.checked) return "redact"; // excluded entirely -> mode is moot
+  const anyIncluded = Array.from(
+    personItem.querySelectorAll(".occurrence-item input[type=checkbox]")
+  ).some((checkbox) => checkbox.checked);
+  if (!anyIncluded) return "redact"; // every occurrence excluded -> mode is moot
   const checkedRadio = personItem.querySelector('input[name="person-mode"]:checked');
   return checkedRadio ? checkedRadio.value : "redact";
 }
-
-reviewRestartBtn.addEventListener("click", resetToInputPhase);
 
 finalizeBtn.addEventListener("click", async () => {
   if (!currentToken || finalizeBtn.disabled) return;
 
   hideError();
   finalizeBtn.disabled = true;
-  reviewRestartBtn.disabled = true;
-  finalizeLoading.classList.remove("hidden");
-  resetProgressUI(finalizeBarFill, finalizeStageLabel, finalizeEta);
+  showLoadingOverlay();
+  resetProgressUI(loadingBarFill, loadingStageLabel, loadingEta);
 
-  const excludedCategories = getExcludedCategories();
+  const excludedOccurrenceIds = getExcludedOccurrenceIds();
   const personMode = getPersonMode();
 
   try {
@@ -696,7 +698,7 @@ finalizeBtn.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token: currentToken,
-        excluded_categories: excludedCategories,
+        excluded_occurrence_ids: excludedOccurrenceIds,
         person_mode: personMode,
       }),
     });
@@ -704,34 +706,79 @@ finalizeBtn.addEventListener("click", async () => {
     const data = await response.json();
 
     if (!response.ok) {
+      goToStep(3);
       showError(data.error || "Unbekannter Fehler bei der Anonymisierung.");
       return;
     }
 
     const result = await pollProgress(data.job_id, {
-      fillEl: finalizeBarFill,
-      labelEl: finalizeStageLabel,
-      etaEl: finalizeEta,
+      fillEl: loadingBarFill,
+      labelEl: loadingStageLabel,
+      etaEl: loadingEta,
     });
 
     // The token is single-use; whether it succeeded or was already
     // consumed server-side, it's no longer valid — drop it client-side too.
     currentToken = null;
     currentCategories = [];
-    reviewCard.classList.add("hidden");
     renderResult(result);
   } catch (err) {
+    goToStep(3);
     showError(
       err.message || "Verbindung zum lokalen Server fehlgeschlagen. Bitte erneut versuchen."
     );
   } finally {
     finalizeBtn.disabled = false;
-    reviewRestartBtn.disabled = false;
-    finalizeLoading.classList.add("hidden");
   }
 });
 
-// --- Phase 3: result ---------------------------------------------------------
+// --- Step 4: Ergebnis --------------------------------------------------------
+
+const resultFilename = document.getElementById("result-filename");
+const resultLanguage = document.getElementById("result-language");
+const resultTabsBar = document.getElementById("result-tabs");
+const resultTabButtons = document.querySelectorAll(".ribbon-tab");
+const resultTranscriptWrap = document.getElementById("result-transcript-wrap");
+const resultTranscript = document.getElementById("result-transcript");
+const resultSummaryWrap = document.getElementById("result-summary-wrap");
+const resultSummary = document.getElementById("result-summary");
+const resultDownloads = document.getElementById("result-downloads");
+const resultNewDocumentBtn = document.getElementById("result-new-document-btn");
+
+const piiAuditBox = document.getElementById("pii-audit");
+const piiAuditToggle = document.getElementById("pii-audit-toggle");
+const piiAuditList = document.getElementById("pii-audit-list");
+
+// Holds the current PipelineResult (from finalize or a previous replace) so
+// find/replace requests have the text + metadata they need to send back —
+// see performReplace().
+let currentResult = null;
+
+function collapsePiiAudit() {
+  piiAuditToggle.setAttribute("aria-expanded", "false");
+  piiAuditList.classList.add("hidden");
+}
+
+piiAuditToggle.addEventListener("click", () => {
+  const expanded = piiAuditToggle.getAttribute("aria-expanded") === "true";
+  piiAuditToggle.setAttribute("aria-expanded", String(!expanded));
+  piiAuditList.classList.toggle("hidden", expanded);
+});
+
+// Switches between the transcript/summary panels via the ribbon — only
+// relevant when both exist (output_mode "both"); see renderResult(), which
+// hides the ribbon entirely and just shows the single panel otherwise.
+function activateResultTab(targetId) {
+  resultTabButtons.forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.target === targetId));
+  });
+  resultTranscriptWrap.classList.toggle("hidden", targetId !== "result-transcript-wrap");
+  resultSummaryWrap.classList.toggle("hidden", targetId !== "result-summary-wrap");
+}
+
+resultTabButtons.forEach((tab) => {
+  tab.addEventListener("click", () => activateResultTab(tab.dataset.target));
+});
 
 function renderResult(result) {
   currentResult = result;
@@ -748,6 +795,7 @@ function renderResult(result) {
       piiAuditList.appendChild(li);
     }
     piiAuditBox.classList.remove("hidden");
+    collapsePiiAudit();
   } else {
     piiAuditBox.classList.add("hidden");
   }
@@ -755,18 +803,19 @@ function renderResult(result) {
   resultFilename.textContent = result.source_filename;
   resultLanguage.textContent = formatLanguageLabel(result.detected_language);
 
-  if (result.anonymized_transcript) {
-    resultTranscript.textContent = result.anonymized_transcript;
-    resultTranscriptWrap.classList.remove("hidden");
-  } else {
-    resultTranscriptWrap.classList.add("hidden");
-  }
+  resultTranscript.textContent = result.anonymized_transcript || "";
+  resultSummary.textContent = result.summary || "";
 
-  if (result.summary) {
-    resultSummary.textContent = result.summary;
-    resultSummaryWrap.classList.remove("hidden");
+  const hasTranscript = Boolean(result.anonymized_transcript);
+  const hasSummary = Boolean(result.summary);
+
+  if (hasTranscript && hasSummary) {
+    resultTabsBar.classList.remove("hidden");
+    activateResultTab("result-transcript-wrap");
   } else {
-    resultSummaryWrap.classList.add("hidden");
+    resultTabsBar.classList.add("hidden");
+    resultTranscriptWrap.classList.toggle("hidden", !hasTranscript);
+    resultSummaryWrap.classList.toggle("hidden", !hasSummary);
   }
 
   resultDownloads.innerHTML = "";
@@ -775,12 +824,21 @@ function renderResult(result) {
     link.className = "primary-btn download-link";
     link.href = `/api/download/${encodeURIComponent(file.filename)}`;
     link.setAttribute("download", file.filename);
-    link.textContent = `${file.label} herunterladen`;
+    // Full label (e.g. "Transkript (Markdown)") goes in the tooltip; the
+    // visible text is just the short name so the button stays single-line.
+    link.textContent = file.label.split(" (")[0];
+    link.title = `${file.label} herunterladen`;
     resultDownloads.appendChild(link);
   }
 
-  resultCard.classList.remove("hidden");
-  resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  findReplacePanel.classList.add("hidden");
+  findReplaceToggle.setAttribute("aria-expanded", "false");
+  setFindReplaceStatus("");
+
+  maxReachedStep = Math.max(maxReachedStep, 4);
+  currentStep = 4;
+  showPanel(4);
+  renderStepBar();
 }
 
 // --- Find & replace ---------------------------------------------------------
@@ -792,6 +850,15 @@ function renderResult(result) {
 // markdown files stay in sync with what's shown on screen; any non-markdown
 // download (a structured-format copy) is sent along untouched so it isn't
 // silently dropped from the list.
+
+const findReplaceToggle = document.getElementById("find-replace-toggle");
+const findReplacePanel = document.getElementById("find-replace-panel");
+const findReplaceSearch = document.getElementById("find-replace-search");
+const findReplaceReplacement = document.getElementById("find-replace-replacement");
+const findReplaceCaseToggle = document.getElementById("find-replace-case-toggle");
+const findReplaceOneBtn = document.getElementById("find-replace-one-btn");
+const findReplaceAllBtn = document.getElementById("find-replace-all-btn");
+const findReplaceStatus = document.getElementById("find-replace-status");
 
 findReplaceToggle.addEventListener("click", () => {
   const expanded = findReplaceToggle.getAttribute("aria-expanded") === "true";
@@ -902,7 +969,39 @@ for (const input of [findReplaceSearch, findReplaceReplacement]) {
   });
 }
 
-// --- System status --------------------------------------------------------
+// --- "Neues Dokument" --------------------------------------------------------
+
+function resetToInputPhase() {
+  currentToken = null;
+  currentCategories = [];
+  currentResult = null;
+  reviewList.innerHTML = "";
+  resultTranscript.textContent = "";
+  resultSummary.textContent = "";
+  resultDownloads.innerHTML = "";
+  findReplaceSearch.value = "";
+  findReplaceReplacement.value = "";
+  setFindReplaceStatus("");
+  findReplacePanel.classList.add("hidden");
+  findReplaceToggle.setAttribute("aria-expanded", "false");
+  clearSelectedFile();
+  clearClipboardText();
+  hideError();
+  maxReachedStep = 1;
+  goToStep(1);
+}
+
+resultNewDocumentBtn.addEventListener("click", resetToInputPhase);
+
+// --- System status ------------------------------------------------------------
+
+const statusOpenBtn = document.getElementById("status-open-btn");
+const statusModal = document.getElementById("status-modal");
+const statusModalClose = document.getElementById("status-modal-close");
+const statusLoading = document.getElementById("status-loading");
+const dependencyList = document.getElementById("dependency-list");
+
+const MODEL_PICKER_CUSTOM_VALUE = "__custom__";
 
 function renderDependencies(statuses) {
   dependencyList.innerHTML = "";
@@ -1092,28 +1191,33 @@ function initModelPicker({ idPrefix, endpoint }) {
 const ollamaModelPicker = initModelPicker({ idPrefix: "ollama-model", endpoint: "ollama-model" });
 const whisperModelPicker = initModelPicker({ idPrefix: "whisper-model", endpoint: "whisper-model" });
 
-statusToggle.addEventListener("click", () => {
-  const expanded = statusToggle.getAttribute("aria-expanded") === "true";
-  const next = !expanded;
-  statusToggle.setAttribute("aria-expanded", String(next));
-  statusPanel.classList.toggle("hidden", !next);
-  if (next) {
-    loadDependencies();
-    ollamaModelPicker.load();
-    whisperModelPicker.load();
-  }
-});
+// System status lives in a modal (like the help modal), opened from the
+// header — there's no persistent sidebar anymore for it to live in.
+function openStatusModal() {
+  statusModal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  loadDependencies();
+  ollamaModelPicker.load();
+  whisperModelPicker.load();
+}
 
-// --- "Neues Dokument" ---------------------------------------------------------
+function closeStatusModal() {
+  statusModal.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
 
-resultNewDocumentBtn.addEventListener("click", () => {
-  resultTranscript.textContent = "";
-  resultSummary.textContent = "";
-  resultDownloads.innerHTML = "";
-  resetToInputPhase();
+statusOpenBtn.addEventListener("click", openStatusModal);
+statusModalClose.addEventListener("click", closeStatusModal);
+
+statusModal.addEventListener("click", (event) => {
+  if (event.target === statusModal) closeStatusModal();
 });
 
 // --- Help modal -----------------------------------------------------------
+
+const helpBtn = document.getElementById("help-btn");
+const helpModal = document.getElementById("help-modal");
+const helpModalClose = document.getElementById("help-modal-close");
 
 function openHelpModal() {
   helpModal.classList.remove("hidden");
@@ -1133,9 +1237,13 @@ helpModal.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !helpModal.classList.contains("hidden")) {
-    closeHelpModal();
-  }
+  if (event.key !== "Escape") return;
+  if (!helpModal.classList.contains("hidden")) closeHelpModal();
+  if (!statusModal.classList.contains("hidden")) closeStatusModal();
 });
 
-updateAnalyzeButtonState();
+// --- init ---------------------------------------------------------------
+
+updateStep1Readiness();
+renderStepBar();
+showPanel(1);

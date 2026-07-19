@@ -29,6 +29,7 @@ from app.config import (
     SPACY_MODELS,
     SUPPORTED_PHONE_REGIONS,
 )
+from app.pipeline.occurrences import OccurrenceRef, occurrences_for_offsets
 from app.pipeline.pseudonymize import make_person_numberer, make_person_pseudonymizer
 from app.schemas import AnonymizeResult, DetectedCategory, PersonMode, PiiEntity
 
@@ -36,7 +37,6 @@ _analyzer: AnalyzerEngine | None = None
 _anonymizer = AnonymizerEngine()
 _build_lock = threading.Lock()
 
-_MAX_SAMPLES_PER_CATEGORY = 3
 _POSTAL_CODE_SCORE = 0.85
 
 # Presidio ships no generic postal-code recognizer, and a plain "digits
@@ -204,46 +204,63 @@ def analyze(text: str, language: str) -> list:
     return _resolve_overlaps(resolved + postal_codes) if postal_codes else resolved
 
 
-def summarize_categories(text: str, results: list, source: str = "presidio") -> list[DetectedCategory]:
-    """Aggregate detection results into counts + example snippets per category,
-    for the pre-finalize review UI."""
-    by_type: dict[str, list[str]] = {}
+def summarize_categories(
+    text: str, results: list, source: str = "presidio"
+) -> tuple[list[DetectedCategory], dict[str, OccurrenceRef]]:
+    """Aggregate detection results into full per-occurrence category rows for
+    the pre-finalize review UI, plus the server-internal OccurrenceRef map
+    (kept on PendingState) that lets finalize() translate the frontend's
+    chosen occurrence ids back into an actual exclusion."""
+    by_type: dict[str, list] = {}
     for result in results:
-        by_type.setdefault(result.entity_type, []).append(text[result.start:result.end])
+        by_type.setdefault(result.entity_type, []).append(result)
 
-    categories = []
-    for entity_type, snippets in by_type.items():
-        seen: list[str] = []
-        for snippet in snippets:
-            if snippet not in seen:
-                seen.append(snippet)
-            if len(seen) >= _MAX_SAMPLES_PER_CATEGORY:
-                break
+    categories: list[DetectedCategory] = []
+    all_refs: dict[str, OccurrenceRef] = {}
+    for entity_type, type_results in by_type.items():
+        spans = [(r.start, r.end) for r in sorted(type_results, key=lambda r: r.start)]
+        occurrences, refs = occurrences_for_offsets(entity_type, source, text, spans)
+        all_refs.update(refs)
         categories.append(
             DetectedCategory(
                 category=entity_type,
-                count=len(snippets),
+                count=len(occurrences),
                 source=source,
-                samples=seen,
+                occurrences=occurrences,
                 is_person=(source == "presidio" and entity_type == "PERSON"),
             )
         )
-    return categories
+    return categories, all_refs
+
+
+def occurrence_ids_for_categories(results: list, excluded_categories: set[str]) -> set[str]:
+    """Translate a whole-category exclusion set into the occurrence-id shape
+    apply_anonymization() expects, against WHATEVER results list is actually
+    about to be redacted. Used wherever occurrence-level identity from the
+    review step doesn't (or can't) survive to this point — the per-cell
+    structured re-export, and pipeline.finalize()'s column_candidates
+    re-analyze fallback — since both re-run Presidio fresh against a text
+    whose offsets bear no relation to the ones the review UI showed."""
+    return {f"p:{r.start}:{r.end}" for r in results if r.entity_type in excluded_categories}
 
 
 def apply_anonymization(
     text: str,
     results: list,
-    excluded_types: set[str] | None = None,
+    excluded_occurrence_ids: set[str] | None = None,
     person_mode: PersonMode = PersonMode.REDACT,
     person_replacer: Callable[[str], str] | None = None,
 ) -> AnonymizeResult:
-    """Redact `results`, skipping any whose entity_type is in `excluded_types`
-    (left as original text). `person_mode` controls what PERSON matches become:
-    PersonMode.REDACT -> the generic "[PERSON]" (like every other category),
-    PersonMode.NUMBERED -> consistent numbered placeholders ("[PERSON1]",
-    "[PERSON2]", ...) so a reader can still tell distinct people apart without
-    seeing any name, PersonMode.PSEUDONYMIZE -> consistent fake full names.
+    """Redact `results`, skipping any whose occurrence id ("p:<start>:<end>",
+    see app.pipeline.occurrences) is in `excluded_occurrence_ids` (left as
+    original text) — excluding an entire category is just excluding every one
+    of its occurrence ids, which is exactly what the frontend sends when a
+    user unchecks a category's master checkbox. `person_mode` controls what
+    PERSON matches become: PersonMode.REDACT -> the generic "[PERSON]" (like
+    every other category), PersonMode.NUMBERED -> consistent numbered
+    placeholders ("[PERSON1]", "[PERSON2]", ...) so a reader can still tell
+    distinct people apart without seeing any name, PersonMode.PSEUDONYMIZE ->
+    consistent fake full names.
 
     Pass an existing `person_replacer` (from `make_person_numberer()` or
     `make_person_pseudonymizer()`) when this is called multiple times for the
@@ -252,8 +269,8 @@ def apply_anonymization(
     same label everywhere. If omitted (and person_mode isn't REDACT), a fresh
     one is created (consistent only within this single call).
     """
-    excluded_types = excluded_types or set()
-    filtered = [r for r in results if r.entity_type not in excluded_types]
+    excluded_occurrence_ids = excluded_occurrence_ids or set()
+    filtered = [r for r in results if f"p:{r.start}:{r.end}" not in excluded_occurrence_ids]
 
     if not filtered:
         return AnonymizeResult(anonymized_text=text, entities=[])
@@ -315,7 +332,7 @@ _FILENAME_SEPARATOR_RE = re.compile(r"[_-]")
 def anonymize_filename(
     filename: str,
     language: str,
-    excluded_types: set[str] | None = None,
+    excluded_categories: set[str] | None = None,
     person_mode: PersonMode = PersonMode.REDACT,
     person_replacer: Callable[[str], str] | None = None,
 ) -> str:
@@ -328,15 +345,22 @@ def anonymize_filename(
     separators are normalized to spaces before detection. The substitution is
     1-for-1 (never changes length), which keeps analyze()'s character offsets
     valid for apply_anonymization() to redact the same span it detected.
+
+    Takes a whole-category exclusion set (not occurrence ids) — this is a
+    completely separate analyze() call over just the filename stem, so the
+    body text's occurrence ids have no meaning here; occurrence_ids_for_
+    categories() re-derives the equivalent exclusion against these fresh
+    results instead.
     """
     stem = Path(filename).stem
     suffix = Path(filename).suffix
     spaced_stem = _FILENAME_SEPARATOR_RE.sub(" ", stem)
     results = analyze(spaced_stem, language)
+    excluded_ids = occurrence_ids_for_categories(results, excluded_categories or set())
     anonymized = apply_anonymization(
         spaced_stem,
         results,
-        excluded_types=excluded_types,
+        excluded_occurrence_ids=excluded_ids,
         person_mode=person_mode,
         person_replacer=person_replacer,
     )

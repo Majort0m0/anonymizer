@@ -67,6 +67,7 @@ from typing import Callable
 
 from app.config import DEFAULT_LANGUAGE, SPACY_MODELS
 from app.pipeline import anonymize, column_classifier, deep_check
+from app.pipeline import occurrences as occ
 from app.pipeline.ingest import (
     AUDIO_EXTENSIONS,
     CSV_EXTENSIONS,
@@ -75,6 +76,7 @@ from app.pipeline.ingest import (
     STRUCTURED_REWRITE_EXTENSIONS,
     ingest_file,
 )
+from app.pipeline.occurrences import OccurrenceRef
 from app.pipeline.pseudonymize import make_person_numberer, make_person_pseudonymizer
 from app.pipeline.render_markdown import render_summary, render_transcript
 from app.pipeline.rewrite_csv import rewrite_csv
@@ -99,6 +101,12 @@ class PendingState:
     presidio_results: list
     deep_check_candidates: list = field(default_factory=list)
     column_candidates: list = field(default_factory=list)
+    # Every occurrence id shown in the category review UI, keyed by id — see
+    # app.pipeline.occurrences. Built once during analyze() from all three
+    # detection sources (Presidio, deep-check, column-header) and reused by
+    # finalize() to translate the frontend's chosen occurrence ids back into
+    # an actual exclusion.
+    occurrence_refs: dict[str, OccurrenceRef] = field(default_factory=dict)
     source_bytes: bytes | None = None  # only set for STRUCTURED_REWRITE_EXTENSIONS
     source_suffix: str | None = None  # original lowercase extension, e.g. ".xlsx"
 
@@ -170,7 +178,7 @@ def analyze(
     if on_progress:
         on_progress("presidio_analyze", 0, 1)
     presidio_results = anonymize.analyze(raw_text, language)
-    categories = anonymize.summarize_categories(raw_text, presidio_results)
+    categories, occurrence_refs = anonymize.summarize_categories(raw_text, presidio_results)
     if on_progress:
         on_progress("presidio_analyze", 1, 1)
 
@@ -182,7 +190,9 @@ def analyze(
     column_candidates: list = []
     if source_bytes is not None and source_suffix is not None:
         column_candidates = column_classifier.extract_column_candidates(source_bytes, source_suffix)
-        categories += column_classifier.summarize_column_categories(column_candidates, raw_text)
+        column_categories, column_refs = column_classifier.summarize_column_categories(column_candidates, raw_text)
+        categories += column_categories
+        occurrence_refs.update(column_refs)
 
     deep_check_candidates: list = []
     if options.deep_check:
@@ -192,7 +202,18 @@ def analyze(
         deep_check_candidates = deep_check.find_candidates(
             raw_text, language, on_progress=on_progress
         )
-        categories += deep_check.summarize_candidate_categories(deep_check_candidates)
+        deep_check_categories, deep_check_refs = deep_check.summarize_candidate_categories(
+            deep_check_candidates, raw_text
+        )
+        categories += deep_check_categories
+        occurrence_refs.update(deep_check_refs)
+
+    # The PERSON row (the one with the Schwärzen/Nummerieren/Pseudonymisieren
+    # toggle) always leads, regardless of detection order — it's usually the
+    # most consequential category, and this keeps its per-occurrence controls
+    # from scrolling out of view on a document with many other categories.
+    # A stable sort preserves every other category's original relative order.
+    categories.sort(key=lambda category: not category.is_person)
 
     state = PendingState(
         source_filename=source_filename,
@@ -205,6 +226,7 @@ def analyze(
         presidio_results=presidio_results,
         deep_check_candidates=deep_check_candidates,
         column_candidates=column_candidates,
+        occurrence_refs=occurrence_refs,
         source_bytes=source_bytes,
         source_suffix=source_suffix,
     )
@@ -352,13 +374,23 @@ def _finalize_without_anonymization(
 
 def finalize(
     state: PendingState,
-    excluded_categories: set[str],
+    excluded_occurrence_ids: set[str],
     person_mode: PersonMode,
     on_progress: Callable[[str, int, int], None] | None = None,
     on_plan: Callable[[list[tuple[str, int]]], None] | None = None,
 ) -> FinalizeOutput:
     if not state.anonymize_requested:
         return _finalize_without_anonymization(state, on_progress, on_plan)
+
+    # Categories where EVERY occurrence the review UI showed is excluded —
+    # equivalent to (and a drop-in replacement for) the old whole-category
+    # exclusion set, needed wherever occurrence-level identity from the
+    # review step doesn't survive to this point: the per-cell structured
+    # re-export, the column_candidates Presidio re-analyze fallback below,
+    # and the exclusion_note handed to find_missed_pii()/
+    # find_missed_locations() (which have no review step of their own, so
+    # only ever know categories, never individual occurrence ids).
+    excluded_categories = occ.fully_excluded_categories(state.occurrence_refs, excluded_occurrence_ids)
 
     if on_plan:
         plan: list[tuple[str, int]] = [("redact", 1)]
@@ -401,23 +433,36 @@ def finalize(
     working_text = state.raw_text
     column_pii_audit: list[PiiEntity] = []
     presidio_results_for_redaction = state.presidio_results
+    # The exact occurrence ids the review UI showed apply directly to
+    # state.presidio_results (the common case) — but if column_candidates
+    # triggers the re-analyze below, Presidio's offsets just shifted, so
+    # those ids no longer line up with the fresh results at all. That path
+    # degrades to whole-category exclusion instead (see
+    # occurrence_ids_for_categories()'s docstring) — the same granularity
+    # the per-cell structured re-export already has for tabular sources.
+    presidio_excluded_ids = excluded_occurrence_ids
     if state.column_candidates:
         column_result = deep_check.apply_candidates(
             working_text,
             state.column_candidates,
-            excluded_categories,
+            excluded_categories=excluded_categories,
+            excluded_occurrence_ids=excluded_occurrence_ids,
             source="column_header",
             person_replacer=person_replacer,
             person_category="PERSON_SPALTE",
+            id_prefix="col",
         )
         working_text = column_result.anonymized_text
         column_pii_audit = column_result.entities
         presidio_results_for_redaction = anonymize.analyze(working_text, state.language)
+        presidio_excluded_ids = anonymize.occurrence_ids_for_categories(
+            presidio_results_for_redaction, excluded_categories
+        )
 
     anon_result = anonymize.apply_anonymization(
         working_text,
         presidio_results_for_redaction,
-        excluded_types=excluded_categories,
+        excluded_occurrence_ids=presidio_excluded_ids,
         person_mode=person_mode,
         person_replacer=person_replacer,
     )
@@ -438,7 +483,7 @@ def finalize(
         redacted_source_filename = anonymize.anonymize_filename(
             state.source_filename,
             state.language,
-            excluded_types=excluded_categories,
+            excluded_categories=excluded_categories,
             person_mode=person_mode,
             person_replacer=person_replacer,
         )
@@ -448,7 +493,13 @@ def finalize(
     if state.deep_check_requested:
         if on_progress:
             on_progress("deep_check_apply", 0, 1)
-        dc_result = deep_check.apply_candidates(text, state.deep_check_candidates, excluded_categories)
+        dc_result = deep_check.apply_candidates(
+            text,
+            state.deep_check_candidates,
+            excluded_categories=excluded_categories,
+            excluded_occurrence_ids=excluded_occurrence_ids,
+            id_prefix="dc",
+        )
         text = dc_result.anonymized_text
         pii_audit += dc_result.entities
         if on_progress:
@@ -460,13 +511,15 @@ def finalize(
         # file reference numbers) rather than indirect/contextual clues.
         # Unlike find_candidates() above (run once during analyze(), before
         # the user's category choices exist), this runs here against the
-        # true final text so it can be told which categories to leave alone.
+        # true final text so it can be told which categories to leave alone —
+        # it has no review step of its own, so only excluded_categories (not
+        # individual occurrence ids) means anything to it.
         missed_candidates = deep_check.find_missed_pii(
             text, state.language, excluded_categories, on_progress=on_progress
         )
         if missed_candidates:
             missed_result = deep_check.apply_candidates(
-                text, missed_candidates, excluded_categories, source="llm_final_check"
+                text, missed_candidates, excluded_categories=excluded_categories, source="llm_final_check"
             )
             text = missed_result.anonymized_text
             pii_audit += missed_result.entities
@@ -480,7 +533,7 @@ def finalize(
         )
         if missed_locations:
             location_result = deep_check.apply_candidates(
-                text, missed_locations, excluded_categories, source="llm_final_check"
+                text, missed_locations, excluded_categories=excluded_categories, source="llm_final_check"
             )
             text = location_result.anonymized_text
             pii_audit += location_result.entities
@@ -537,28 +590,35 @@ def finalize(
             # catch only part of it. No extra cost here (unlike the main
             # text path): analyze() already runs fresh per cell regardless
             # of ordering, so this just changes what it's run against.
+            # Per-cell, occurrence identity from the review step (computed
+            # against the flattened transcript) has no correspondence at
+            # all — every call below uses whole-category exclusion only,
+            # same as today (see occurrence_ids_for_categories()'s
+            # docstring for why the structured copy already accepts this
+            # coarser granularity for tabular sources).
             working_cell_text = cell_text
             if state.column_candidates:
                 working_cell_text = deep_check.apply_candidates(
                     working_cell_text,
                     state.column_candidates,
-                    excluded_categories,
+                    excluded_categories=excluded_categories,
                     source="column_header",
                     person_replacer=person_replacer,
                     person_category="PERSON_SPALTE",
                 ).anonymized_text
             cell_results = anonymize.analyze(working_cell_text, state.language)
+            cell_excluded_ids = anonymize.occurrence_ids_for_categories(cell_results, excluded_categories)
             cell_anon = anonymize.apply_anonymization(
                 working_cell_text,
                 cell_results,
-                excluded_types=excluded_categories,
+                excluded_occurrence_ids=cell_excluded_ids,
                 person_mode=person_mode,
                 person_replacer=person_replacer,
             )
             cell_text_out = cell_anon.anonymized_text
             if state.deep_check_requested:
                 cell_text_out = deep_check.apply_candidates(
-                    cell_text_out, state.deep_check_candidates, excluded_categories
+                    cell_text_out, state.deep_check_candidates, excluded_categories=excluded_categories
                 ).anonymized_text
             return cell_text_out
 

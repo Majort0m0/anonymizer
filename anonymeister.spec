@@ -1,4 +1,4 @@
-# PyInstaller spec for the Anonymizer desktop app (macOS/Windows/Linux).
+# PyInstaller spec for the AnonyMeister desktop app (macOS/Windows/Linux).
 #
 # spaCy models and Ollama are deliberately NOT bundled — they're large
 # (500MB+ each) and already have a working "install if missing" story via
@@ -72,7 +72,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Anonymizer",
+    name="AnonyMeister",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -93,18 +93,18 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="Anonymizer",
+    name="AnonyMeister",
 )
 
 if sys.platform == "darwin":
     app = BUNDLE(
         coll,
-        name="Anonymizer.app",
+        name="AnonyMeister.app",
         icon=None,
-        bundle_identifier="blog.lernsachen.anonymizer",
+        bundle_identifier="blog.lernsachen.anonymeister",
         info_plist={
-            "CFBundleName": "Anonymizer",
-            "CFBundleDisplayName": "Anonymizer",
+            "CFBundleName": "AnonyMeister",
+            "CFBundleDisplayName": "AnonyMeister",
             "CFBundleShortVersionString": "1.0.0",
             "NSHighResolutionCapable": True,
         },

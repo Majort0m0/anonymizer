@@ -1,6 +1,6 @@
 # Installationshinweise
 
-Kurzübersicht zur Installation der Anonymizer-App. Eine ausführliche
+Kurzübersicht zur Installation der AnonyMeister-App. Eine ausführliche
 Bedienungsanleitung gibt es in [`ANLEITUNG.md`](ANLEITUNG.md), technische
 Details in [`README.md`](README.md).
 
@@ -10,7 +10,7 @@ Details in [`README.md`](README.md).
   und die Zusammenfassung. Download: https://ollama.com/download
   Anschließend ein Modell laden (Standard):
   ```bash
-  ollama pull gemma4:12b
+  ollama pull gemma4:e4b
   ```
   Das Modell lässt sich später jederzeit im „Systemstatus"-Bereich der App
   umstellen (kuratierte Auswahl `gemma4:e2b`/`e4b`/`12b`/`26b` oder Freitext
@@ -29,17 +29,17 @@ Details in [`README.md`](README.md).
 
 1. `.dmg` aus den [Releases](https://github.com/Majort0m0/anonymizer/releases/latest)
    herunterladen und öffnen, App in den `Applications`-Ordner ziehen.
-2. **Beim ersten Start blockiert Gatekeeper die App** („Anonymizer.app ist
+2. **Beim ersten Start blockiert Gatekeeper die App** („AnonyMeister.app ist
    beschädigt" / „konnte nicht überprüft werden"). Grund: Die App ist nur
    ad-hoc signiert, nicht notariert (ein Apple Developer-Zertifikat kostet
    99 $/Jahr und steht für dieses Projekt nicht zur Verfügung). Die App
    trotzdem öffnen:
    - **Systemeinstellungen → Datenschutz & Sicherheit** öffnen, runterscrollen.
-     Dort erscheint „Anonymizer.app wurde blockiert…" mit Button
+     Dort erscheint „AnonyMeister.app wurde blockiert…" mit Button
      **„Trotzdem öffnen"** — klicken und bestätigen.
    - Falls das nicht erscheint, per Terminal das Quarantäne-Flag entfernen:
      ```bash
-     xattr -cr /Applications/Anonymizer.app
+     xattr -cr /Applications/AnonyMeister.app
      ```
    - Alternativ: Rechtsklick (bzw. Ctrl-Klick) auf die App → „Öffnen" → im
      Dialog nochmal „Öffnen" bestätigen.
@@ -48,10 +48,10 @@ Details in [`README.md`](README.md).
 
 ## Windows
 
-1. `.exe`-Installer (falls vorhanden, sonst das gepackte `Anonymizer.exe`
+1. `.exe`-Installer (falls vorhanden, sonst das gepackte `AnonyMeister.exe`
    direkt) aus den [Releases](https://github.com/Majort0m0/anonymizer/releases/latest)
    herunterladen.
-2. Installer ausführen bzw. `Anonymizer.exe` starten. Windows SmartScreen kann
+2. Installer ausführen bzw. `AnonyMeister.exe` starten. Windows SmartScreen kann
    bei einer unsignierten `.exe` warnen — „Weitere Informationen" →
    „Trotzdem ausführen" wählen.
 3. Ollama separat installieren (siehe oben), App starten, im
@@ -62,8 +62,8 @@ Details in [`README.md`](README.md).
 1. `.AppImage` aus den [Releases](https://github.com/Majort0m0/anonymizer/releases/latest)
    herunterladen, ausführbar machen und starten:
    ```bash
-   chmod +x Anonymizer-x86_64.AppImage
-   ./Anonymizer-x86_64.AppImage
+   chmod +x AnonyMeister-x86_64.AppImage
+   ./AnonyMeister-x86_64.AppImage
    ```
 2. **Voraussetzung, die nicht in der AppImage steckt:** GTK + WebKit2GTK samt
    PyGObject-Bindings müssen systemweit installiert sein, sonst bricht der

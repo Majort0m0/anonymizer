@@ -44,8 +44,8 @@ jobs:
         shell: bash
       - uses: actions/upload-artifact@v4
         with:
-          name: anonymizer-macos
-          path: dist/Anonymizer-macOS.dmg
+          name: anonymeister-macos
+          path: dist/AnonyMeister-macOS.dmg
 
   windows:
     runs-on: windows-latest
@@ -67,8 +67,8 @@ jobs:
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
-          name: anonymizer-windows
-          path: dist/Anonymizer-Setup.exe
+          name: anonymeister-windows
+          path: dist/AnonyMeister-Setup.exe
 
   linux:
     runs-on: ubuntu-latest
@@ -93,25 +93,25 @@ jobs:
           ./scripts/build_linux.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: anonymizer-linux
-          path: dist/Anonymizer-x86_64.AppImage
+          name: anonymeister-linux
+          path: dist/AnonyMeister-x86_64.AppImage
 
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build image
-        run: docker build -t anonymizer:latest .
+        run: docker build -t anonymeister:latest .
       - name: Smoke test
         run: |
-          docker run -d --name anonymizer-ci -p 8765:8765 anonymizer:latest
+          docker run -d --name anonymeister-ci -p 8765:8765 anonymeister:latest
           for i in $(seq 1 20); do
             curl -sf http://127.0.0.1:8765/ > /dev/null && break
             sleep 2
           done
           curl -sf http://127.0.0.1:8765/ > /dev/null
-          docker logs anonymizer-ci
-          docker stop anonymizer-ci
+          docker logs anonymeister-ci
+          docker stop anonymeister-ci
 
   release:
     runs-on: ubuntu-latest
@@ -129,6 +129,6 @@ jobs:
         with:
           body_path: Installationshinweise.md
           files: |
-            artifacts/anonymizer-macos/*
-            artifacts/anonymizer-windows/*
-            artifacts/anonymizer-linux/*
+            artifacts/anonymeister-macos/*
+            artifacts/anonymeister-windows/*
+            artifacts/anonymeister-linux/*

@@ -57,6 +57,21 @@ class AnonymizeResult(BaseModel):
     entities: list[PiiEntity] = Field(default_factory=list)
 
 
+class Occurrence(BaseModel):
+    """One specific matched text span within a DetectedCategory, for the
+    per-occurrence review checklist — every match gets its own checkbox
+    rather than the category being all-or-nothing. `context_before`/
+    `context_after` are short surrounding-text snippets (already ellipsis-
+    truncated server-side) so a reviewer can judge a flagged span in context
+    instead of as a bare, ambiguous word; the frontend renders
+    `context_before` + (highlighted) `text` + `context_after`."""
+
+    id: str
+    text: str
+    context_before: str = ""
+    context_after: str = ""
+
+
 class DetectedCategory(BaseModel):
     """One row in the pre-finalize category review the user sees before the
     anonymization is actually applied."""
@@ -67,7 +82,7 @@ class DetectedCategory(BaseModel):
     # "llm_final_check" (see deep_check.py: that pass runs post-finalize,
     # with no review step, unlike column_header which classifies columns
     # from the original bytes during analyze() and so DOES get reviewed)
-    samples: list[str] = Field(default_factory=list)
+    occurrences: list[Occurrence] = Field(default_factory=list)
     is_person: bool = False  # true only for Presidio's PERSON category — the
     # frontend uses this to decide whether to offer the person-mode toggle
     # (Schwärzen/Nummerieren/Pseudonymisieren)
@@ -89,7 +104,12 @@ class PendingAnalysis(BaseModel):
 
 class FinalizeRequest(BaseModel):
     token: str
-    excluded_categories: list[str] = Field(default_factory=list)
+    # Every occurrence id (see Occurrence/DetectedCategory above) the user
+    # left unchecked — a whole-category exclusion is just every occurrence
+    # id belonging to that category. See app.pipeline.occurrences and
+    # app.pipeline.pipeline.finalize() for how this is turned back into an
+    # actual redaction exclusion.
+    excluded_occurrence_ids: list[str] = Field(default_factory=list)
     person_mode: PersonMode = PersonMode.REDACT
 
 

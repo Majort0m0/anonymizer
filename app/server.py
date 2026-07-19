@@ -83,7 +83,7 @@ from app.settings import (
 
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 
-app = FastAPI(title="Anonymizer")
+app = FastAPI(title="AnonyMeister")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _SAFE_STEM_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -479,7 +479,7 @@ async def analyze_file_route(
 ) -> JSONResponse:
     try:
         upload_name = Path(file.filename or "").name or "upload"
-        tmp_dir = Path(tempfile.mkdtemp(prefix="anonymizer_"))
+        tmp_dir = Path(tempfile.mkdtemp(prefix="anonymeister_"))
         tmp_path = tmp_dir / upload_name
         tmp_path.write_bytes(await file.read())
     except Exception as exc:
@@ -528,13 +528,15 @@ def analyze_clipboard_route(payload: ClipboardAnalyzeRequest) -> JSONResponse:
     return JSONResponse({"job_id": job_id})
 
 
-def _run_finalize_job(job: _Job, state: PendingState, excluded_categories: set[str], person_mode: PersonMode) -> None:
+def _run_finalize_job(
+    job: _Job, state: PendingState, excluded_occurrence_ids: set[str], person_mode: PersonMode
+) -> None:
     on_progress, on_plan = _make_callbacks(job)
 
     def build_result() -> dict:
         output = finalize(
             state,
-            excluded_categories=excluded_categories,
+            excluded_occurrence_ids=excluded_occurrence_ids,
             person_mode=person_mode,
             on_progress=on_progress,
             on_plan=on_plan,
@@ -587,7 +589,7 @@ def finalize_route(payload: FinalizeRequest) -> JSONResponse:
     job_id, job = _create_job()
     threading.Thread(
         target=_run_finalize_job,
-        args=(job, state, set(payload.excluded_categories), payload.person_mode),
+        args=(job, state, set(payload.excluded_occurrence_ids), payload.person_mode),
         daemon=True,
     ).start()
     return JSONResponse({"job_id": job_id})

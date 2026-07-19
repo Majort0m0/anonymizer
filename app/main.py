@@ -22,7 +22,7 @@ def main() -> None:
     # the "Herunterladen" link is a silent no-op.
     webview.settings["ALLOW_DOWNLOADS"] = True
     webview.create_window(
-        "Anonymizer",
+        "AnonyMeister",
         f"http://{SERVER_HOST}:{SERVER_PORT}",
         width=1180,
         height=900,

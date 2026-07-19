@@ -1,19 +1,19 @@
-; Inno Setup script for the Anonymizer Windows installer.
-; Compile with: ISCC.exe scripts\anonymizer-installer.iss
+; Inno Setup script for the AnonyMeister Windows installer.
+; Compile with: ISCC.exe scripts\anonymeister-installer.iss
 ; (run from the repo root, or adjust the relative paths below if not).
 ;
 ; NOTE: written to match scripts\build_windows.ps1's PyInstaller output
-; (dist\Anonymizer\Anonymizer.exe) but not verified on an actual Windows
+; (dist\AnonyMeister\AnonyMeister.exe) but not verified on an actual Windows
 ; machine — no Windows environment was available to test the compile step.
 
-#define MyAppName "Anonymizer"
+#define MyAppName "AnonyMeister"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Lernsachen.blog"
 #define MyAppURL "https://lernsachen.blog"
-#define MyAppExeName "Anonymizer.exe"
+#define MyAppExeName "AnonyMeister.exe"
 
 [Setup]
-AppId={{B1E9F6B4-9C6E-4B5A-9C7A-ANONYMIZERAPP}}
+AppId={{B1E9F6B4-9C6E-4B5A-9C7A-ANONYMEISTERAPP}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -22,7 +22,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist
-OutputBaseFilename=Anonymizer-Setup
+OutputBaseFilename=AnonyMeister-Setup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -36,7 +36,7 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\Anonymizer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\AnonyMeister\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

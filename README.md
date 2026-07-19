@@ -1,4 +1,4 @@
-# Anonymizer
+# AnonyMeister
 
 Lokale Desktop-App: liest Dokumente oder Audioaufnahmen ein, anonymisiert
 personenbezogene Daten (PII) und erzeugt daraus ein anonymisiertes Transkript
@@ -131,9 +131,9 @@ ausführen.
 
 | Plattform | Befehl | Ergebnis |
 | --- | --- | --- |
-| macOS | `./scripts/build_macos.sh` | `dist/Anonymizer.app`, `dist/Anonymizer-macOS.dmg` |
-| Windows | `.\scripts\build_windows.ps1` | `dist/Anonymizer/Anonymizer.exe`, mit installiertem [Inno Setup](https://jrsoftware.org/isinfo.php) zusätzlich `dist/Anonymizer-Setup.exe` |
-| Linux | `./scripts/build_linux.sh` | `dist/Anonymizer-x86_64.AppImage` (braucht `python3-gi` + `gir1.2-webkit2-4.1` bzw. distro-Äquivalent auf dem Zielsystem — pywebview kann diese GTK/WebKit-Systemabhängigkeit nicht selbst mitbringen) |
+| macOS | `./scripts/build_macos.sh` | `dist/AnonyMeister.app`, `dist/AnonyMeister-macOS.dmg` |
+| Windows | `.\scripts\build_windows.ps1` | `dist/AnonyMeister/AnonyMeister.exe`, mit installiertem [Inno Setup](https://jrsoftware.org/isinfo.php) zusätzlich `dist/AnonyMeister-Setup.exe` |
+| Linux | `./scripts/build_linux.sh` | `dist/AnonyMeister-x86_64.AppImage` (braucht `python3-gi` + `gir1.2-webkit2-4.1` bzw. distro-Äquivalent auf dem Zielsystem — pywebview kann diese GTK/WebKit-Systemabhängigkeit nicht selbst mitbringen) |
 
 **Linux-Nutzer:** Vor dem ersten Start der AppImage müssen GTK + WebKit2GTK
 samt PyGObject-Bindings systemweit installiert sein — das lässt sich nicht in
@@ -161,18 +161,18 @@ automatisch auf ihren jeweiligen nativen GitHub-Actions-Runnern, sobald dieses
 Repo auf GitHub liegt (Tag `v*` oder manuell auslösbar); das ist der
 verlässlichste Weg zu einem echten, geprüften Windows-/Linux-Build.
 
-**macOS: „Anonymizer.app ist beschädigt" / „konnte nicht überprüft werden".**
+**macOS: „AnonyMeister.app ist beschädigt" / „konnte nicht überprüft werden".**
 Die DMG ist nur ad-hoc signiert, nicht mit einem Apple Developer-Zertifikat
 notariert — ein Apple Developer-Account kostet 99 $/Jahr und steht für dieses
 Projekt nicht zur Verfügung. Gatekeeper blockiert deshalb den ersten Start.
 Die App trotzdem öffnen:
 
 1. **Systemeinstellungen → Datenschutz & Sicherheit** öffnen, runterscrollen.
-   Dort erscheint „Anonymizer.app wurde blockiert…" mit einem Button
+   Dort erscheint „AnonyMeister.app wurde blockiert…" mit einem Button
    **„Trotzdem öffnen"** — klicken und im folgenden Dialog bestätigen.
 2. Falls dort nichts erscheint, per Terminal das Quarantäne-Flag entfernen:
    ```bash
-   xattr -cr /Applications/Anonymizer.app
+   xattr -cr /Applications/AnonyMeister.app
    ```
 3. Alternativ: Rechtsklick (bzw. Ctrl-Klick) auf die App → „Öffnen" → im
    Dialog nochmal „Öffnen" bestätigen (funktioniert auf manchen

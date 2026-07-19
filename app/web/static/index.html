@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Anonymizer</title>
+<title>AnonyMeister</title>
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -11,98 +11,249 @@
 
   <header class="app-header">
     <div class="app-header-top">
-      <h1>Anonymizer</h1>
-      <button type="button" id="help-btn" class="secondary-btn help-btn">Anleitung &amp; Datenschutz</button>
+      <h1>AnonyMeister</h1>
+      <div class="header-actions">
+        <button type="button" id="status-open-btn" class="secondary-btn">Systemstatus</button>
+        <button type="button" id="help-btn" class="secondary-btn">Anleitung &amp; Datenschutz</button>
+      </div>
     </div>
     <p class="subtitle">Dokumente &amp; Audio anonymisieren, zusammenfassen und als Markdown exportieren &mdash; vollständig lokal.</p>
   </header>
 
-  <main class="app-layout">
-
-   <div class="sidebar">
-
-    <section id="input-card" class="card" aria-labelledby="input-heading">
-      <h2 id="input-heading">1. Eingabe</h2>
-
-      <div id="input-chooser">
-        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-describedby="dropzone-hint">
-          <div class="dropzone-icon" aria-hidden="true">&#8615;</div>
-          <p class="dropzone-text">Datei hierher ziehen oder klicken, um sie auszuwählen</p>
-          <p id="dropzone-hint" class="dropzone-hint">.txt, .md, .docx, .pdf, .xlsx, .csv, .json, .odt/.ods/.odp, .mp3, .wav, .m4a &hellip;</p>
-          <input type="file" id="file-input" class="visually-hidden" tabindex="-1"
-                 accept=".txt,.md,.docx,.doc,.pdf,.xlsx,.xlsm,.xls,.csv,.json,.odt,.ods,.odp,.mp3,.wav,.m4a,.ogg,.flac,.aac,.wma,.opus,.aiff,.aif,.caf,.webm">
-        </div>
-
-        <div class="divider"><span>oder</span></div>
-
-        <button type="button" id="clipboard-btn" class="secondary-btn">
-          Aus Zwischenablage einfügen
+  <nav class="step-bar" aria-label="Fortschritt">
+    <ol id="step-list">
+      <li class="step-node" data-step="1">
+        <button class="step-btn" type="button" data-goto="1">
+          <span class="step-circle">1</span>
+          <span class="step-label">Eingabe</span>
         </button>
-      </div>
+      </li>
+      <li class="step-connector"></li>
+      <li class="step-node" data-step="2">
+        <button class="step-btn" type="button" data-goto="2">
+          <span class="step-circle">2</span>
+          <span class="step-label">Optionen</span>
+        </button>
+      </li>
+      <li class="step-connector"></li>
+      <li class="step-node" data-step="3">
+        <button class="step-btn" type="button" data-goto="3">
+          <span class="step-circle">3</span>
+          <span class="step-label">Kategorien prüfen</span>
+        </button>
+      </li>
+      <li class="step-connector"></li>
+      <li class="step-node" data-step="4">
+        <button class="step-btn" type="button" data-goto="4">
+          <span class="step-circle">4</span>
+          <span class="step-label">Ergebnis</span>
+        </button>
+      </li>
+    </ol>
+  </nav>
 
-      <div id="file-chosen" class="file-chosen hidden">
-        <span class="file-chosen-label">Ausgewählt:</span>
-        <span id="file-chosen-name" class="file-chosen-name"></span>
-        <button type="button" id="file-clear-btn" class="link-btn">Entfernen</button>
-      </div>
+  <main class="stage" id="stage">
 
-      <div id="clipboard-preview-wrap" class="clipboard-preview-wrap hidden">
-        <label for="clipboard-preview">Eingefügter Text (bearbeitbar)</label>
-        <textarea id="clipboard-preview" class="clipboard-preview" rows="5"></textarea>
-        <button type="button" id="clipboard-clear-btn" class="link-btn">Verwerfen</button>
-      </div>
-    </section>
+    <!-- Step 1: Eingabe -->
+    <section class="step-panel" data-panel="1">
+      <div class="step-scroll">
+        <div class="step-content">
+          <h2>Eingabe</h2>
+          <p class="step-intro">Datei auswählen oder Text aus der Zwischenablage einfügen.</p>
 
-    <section id="options-card" class="card" aria-labelledby="options-heading">
-      <h2 id="options-heading">2. Optionen</h2>
+          <div id="input-chooser">
+            <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-describedby="dropzone-hint">
+              <div class="dropzone-icon" aria-hidden="true">&#8615;</div>
+              <p class="dropzone-text">Datei hierher ziehen oder klicken, um sie auszuwählen</p>
+              <p id="dropzone-hint" class="dropzone-hint">.txt, .md, .docx, .pdf, .xlsx, .csv, .json, .odt/.ods/.odp, .mp3, .wav, .m4a &hellip;</p>
+              <input type="file" id="file-input" class="visually-hidden" tabindex="-1"
+                     accept=".txt,.md,.docx,.doc,.pdf,.xlsx,.xlsm,.xls,.csv,.json,.odt,.ods,.odp,.mp3,.wav,.m4a,.ogg,.flac,.aac,.wma,.opus,.aiff,.aif,.caf,.webm">
+            </div>
 
-      <div class="option-row">
-        <label class="toggle">
-          <input type="checkbox" id="anonymize-toggle" checked>
-          <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
-          <span class="toggle-label">
-            Anonymisierung
-            <span class="toggle-desc">Personenbezogene Daten erkennen und schwärzen. Bei Bedarf ausschalten, um nur ein reines Transkript oder eine Zusammenfassung ohne Schwärzung zu erhalten.</span>
-          </span>
-        </label>
-      </div>
+            <div class="divider"><span>oder</span></div>
 
-      <div id="deep-check-row" class="option-row">
-        <label class="toggle">
-          <input type="checkbox" id="deep-check-toggle">
-          <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
-          <span class="toggle-label">
-            Tiefencheck (LLM-Prüfung)
-            <span class="toggle-desc">Zusätzliche, langsamere Prüfung per Sprachmodell.</span>
-          </span>
-        </label>
-      </div>
+            <button type="button" id="clipboard-btn" class="secondary-btn">
+              Aus Zwischenablage einfügen
+            </button>
+          </div>
 
-      <fieldset class="option-row">
-        <legend>Ausgabe</legend>
-        <div class="segmented" role="radiogroup" aria-label="Ausgabe">
-          <label class="segmented-option">
-            <input type="radio" name="output-mode" value="transcript">
-            <span>Transkript</span>
-          </label>
-          <label class="segmented-option">
-            <input type="radio" name="output-mode" value="summary">
-            <span>Zusammenfassung</span>
-          </label>
-          <label class="segmented-option">
-            <input type="radio" name="output-mode" value="both" checked>
-            <span>Beides</span>
-          </label>
+          <div id="file-chosen" class="file-chosen hidden">
+            <span class="file-chosen-label">Ausgewählt:</span>
+            <span id="file-chosen-name" class="file-chosen-name"></span>
+            <button type="button" id="file-clear-btn" class="link-btn">Entfernen</button>
+          </div>
+
+          <div id="clipboard-preview-wrap" class="clipboard-preview-wrap hidden">
+            <label for="clipboard-preview">Eingefügter Text (bearbeitbar)</label>
+            <textarea id="clipboard-preview" class="clipboard-preview" rows="6"></textarea>
+            <button type="button" id="clipboard-clear-btn" class="link-btn">Verwerfen</button>
+          </div>
         </div>
-      </fieldset>
+      </div>
+      <div class="step-nav">
+        <button type="button" class="secondary-btn" disabled>Zurück</button>
+        <button type="button" id="step1-next-btn" class="primary-btn" disabled>Weiter</button>
+      </div>
     </section>
 
-    <section id="action-card" class="card action-card">
-      <h2 class="visually-hidden">3. Analysieren</h2>
-      <button type="button" id="analyze-btn" class="primary-btn" disabled>Analysieren</button>
-      <p id="analyze-hint" class="hint">Bitte zuerst eine Datei oder Zwischenablage wählen.</p>
+    <!-- Step 2: Optionen -->
+    <section class="step-panel hidden" data-panel="2">
+      <div class="step-scroll">
+        <div class="step-content">
+          <h2>Optionen</h2>
+          <p class="step-intro">Legt fest, was erkannt und wie es aufbereitet wird.</p>
 
-      <div id="loading" class="loading hidden">
+          <div class="option-row">
+            <label class="toggle">
+              <input type="checkbox" id="anonymize-toggle" checked>
+              <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+              <span class="toggle-label">
+                Anonymisierung
+                <span class="toggle-desc">Personenbezogene Daten erkennen und schwärzen. Bei Bedarf ausschalten, um nur ein reines Transkript oder eine Zusammenfassung ohne Schwärzung zu erhalten.</span>
+              </span>
+            </label>
+          </div>
+
+          <div id="deep-check-row" class="option-row">
+            <label class="toggle">
+              <input type="checkbox" id="deep-check-toggle">
+              <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+              <span class="toggle-label">
+                Tiefencheck (LLM-Prüfung)
+                <span class="toggle-desc">Zusätzliche, langsamere Prüfung per Sprachmodell.</span>
+              </span>
+            </label>
+          </div>
+
+          <fieldset class="option-row">
+            <legend>Ausgabe</legend>
+            <div class="segmented" role="radiogroup" aria-label="Ausgabe">
+              <label class="segmented-option">
+                <input type="radio" name="output-mode" value="transcript">
+                <span>Transkript</span>
+              </label>
+              <label class="segmented-option">
+                <input type="radio" name="output-mode" value="summary">
+                <span>Zusammenfassung</span>
+              </label>
+              <label class="segmented-option">
+                <input type="radio" name="output-mode" value="both" checked>
+                <span>Beides</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+      </div>
+      <div class="step-nav">
+        <button type="button" class="secondary-btn" data-goto="1">Zurück</button>
+        <button type="button" id="analyze-btn" class="primary-btn">Analysieren</button>
+      </div>
+    </section>
+
+    <!-- Step 3: Kategorien prüfen -->
+    <section class="step-panel hidden" data-panel="3">
+      <div class="step-scroll">
+        <h2>Kategorien prüfen</h2>
+        <p class="step-intro">Jede gefundene Textstelle wird einzeln mit Kontext aufgeführt und kann für sich abgewählt werden — praktisch, wenn eine einzelne Stelle falsch zugeordnet wurde, der Rest der Kategorie aber stimmt.</p>
+
+        <div class="review-meta">
+          <span id="review-filename"></span>
+          <span id="review-language" class="badge"></span>
+        </div>
+
+        <p id="review-empty" class="review-empty hidden"></p>
+
+        <ul id="review-list" class="review-list hidden"></ul>
+      </div>
+      <div class="step-nav">
+        <button type="button" class="secondary-btn" data-goto="2">Zurück</button>
+        <button type="button" id="finalize-btn" class="primary-btn">Anonymisierung anwenden</button>
+      </div>
+    </section>
+
+    <!-- Step 4: Ergebnis -->
+    <section class="step-panel hidden" data-panel="4">
+      <div class="result-body">
+
+        <aside class="result-sidebar">
+          <h2>Ergebnis</h2>
+          <p class="result-file-line">
+            <span id="result-filename"></span> &middot; <span id="result-language" class="badge"></span>
+          </p>
+
+          <div class="result-sidebar-block">
+            <button type="button" id="find-replace-toggle" class="secondary-btn" aria-expanded="false" aria-controls="find-replace-panel">
+              Suchen &amp; Ersetzen
+            </button>
+            <div id="find-replace-panel" class="find-replace-panel hidden">
+              <p class="find-replace-intro">
+                Einzelne Begriffe korrigieren, die z.&nbsp;B. bei der Audio-Transkription falsch verstanden wurden.
+              </p>
+              <div class="find-replace-row">
+                <input type="text" id="find-replace-search" class="find-replace-input" placeholder="Suchen nach…">
+                <input type="text" id="find-replace-replacement" class="find-replace-input" placeholder="Ersetzen durch…">
+              </div>
+              <label class="find-replace-case">
+                <input type="checkbox" id="find-replace-case-toggle">
+                Groß-/Kleinschreibung beachten
+              </label>
+              <div class="find-replace-actions">
+                <button type="button" id="find-replace-one-btn" class="secondary-btn">Ersetzen</button>
+                <button type="button" id="find-replace-all-btn" class="primary-btn">Alle ersetzen</button>
+              </div>
+              <p id="find-replace-status" class="find-replace-status hidden"></p>
+            </div>
+          </div>
+
+          <div class="result-sidebar-block">
+            <span class="result-sidebar-label">Downloads</span>
+            <div id="result-downloads" class="result-downloads"></div>
+          </div>
+
+          <div id="pii-audit" class="pii-audit hidden">
+            <button type="button" id="pii-audit-toggle" class="pii-audit-toggle" aria-expanded="false" aria-controls="pii-audit-list">
+              <span>Erkannte PII-Kategorien</span>
+              <span class="pii-audit-toggle-icon" aria-hidden="true">&#9656;</span>
+            </button>
+            <ul id="pii-audit-list" class="pii-audit-list hidden"></ul>
+          </div>
+        </aside>
+
+        <div class="result-main">
+          <div class="result-ribbon">
+            <span class="result-ribbon-label">Ansicht</span>
+            <div id="result-tabs" class="result-ribbon-tabs hidden" role="tablist" aria-label="Ergebnisansicht">
+              <button type="button" class="ribbon-tab" data-target="result-transcript-wrap" role="tab" aria-selected="true">Transkript</button>
+              <button type="button" class="ribbon-tab" data-target="result-summary-wrap" role="tab" aria-selected="false">Zusammenfassung</button>
+            </div>
+          </div>
+          <div class="result-main-scroll">
+            <div id="result-transcript-wrap" class="hidden">
+              <pre id="result-transcript" class="result-markdown"></pre>
+            </div>
+            <div id="result-summary-wrap" class="hidden">
+              <pre id="result-summary" class="result-markdown"></pre>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="step-nav">
+        <button type="button" class="secondary-btn" data-goto="3">Zurück</button>
+        <span class="step-nav-disclaimer">
+          <span class="warn-icon" aria-hidden="true">&#9888;</span>
+          Automatisierte Anonymisierung kann Fehler enthalten. Manuelle Überprüfung ist immer notwendig!
+        </span>
+        <button type="button" id="result-new-document-btn" class="primary-btn">Neues Dokument</button>
+      </div>
+    </section>
+
+    <!-- Loading overlay: shown full-panel during both async transitions
+         (Analysieren -> step 3, Anonymisierung anwenden -> step 4), reusing
+         one real progress bar (see app.js's pollProgress()) for both. -->
+    <div class="step-panel hidden loading-overlay" id="loading-overlay">
+      <div class="loading-overlay-content">
+        <div class="spinner" aria-hidden="true"></div>
         <div class="progress-bar-track">
           <div id="loading-bar-fill" class="progress-bar-fill" style="width: 0%"></div>
         </div>
@@ -111,135 +262,12 @@
           <span id="loading-eta"></span>
         </div>
       </div>
-
-      <div id="error-box" class="error-box hidden" role="alert">
-        <strong>Fehler:</strong>
-        <span id="error-text"></span>
-      </div>
-    </section>
-
-    <section class="card status-card">
-      <button type="button" id="status-toggle" class="status-toggle" aria-expanded="false" aria-controls="status-panel">
-        <span>Systemstatus</span>
-        <span id="status-toggle-icon" class="status-toggle-icon" aria-hidden="true">&#9656;</span>
-      </button>
-
-      <div id="status-panel" class="status-panel hidden">
-        <div class="model-picker">
-          <label for="ollama-model-select">Ollama-Modell (Tiefencheck &amp; Zusammenfassung)</label>
-          <div class="model-picker-row">
-            <select id="ollama-model-select"></select>
-            <input type="text" id="ollama-model-custom" class="find-replace-input hidden" placeholder="z. B. llama3.1:8b">
-            <button type="button" id="ollama-model-apply" class="secondary-btn">Übernehmen</button>
-          </div>
-          <p id="ollama-model-status" class="model-picker-status"></p>
-        </div>
-        <div class="model-picker">
-          <label for="whisper-model-select">Whisper-Modellgröße (Audiotranskription)</label>
-          <div class="model-picker-row">
-            <select id="whisper-model-select"></select>
-            <input type="text" id="whisper-model-custom" class="find-replace-input hidden" placeholder="z. B. large-v3-turbo">
-            <button type="button" id="whisper-model-apply" class="secondary-btn">Übernehmen</button>
-          </div>
-          <p id="whisper-model-status" class="model-picker-status"></p>
-        </div>
-        <div id="status-loading" class="status-loading">Lade Systemstatus&hellip;</div>
-        <ul id="dependency-list" class="dependency-list"></ul>
-      </div>
-    </section>
-
-   </div>
-
-   <div class="main-content">
-
-    <div id="empty-state" class="card empty-state">
-      <p>Ergebnisse erscheinen hier, sobald eine Datei oder Text aus der Zwischenablage analysiert wurde.</p>
     </div>
 
-    <section id="review-card" class="card hidden" aria-labelledby="review-heading">
-      <h2 id="review-heading">4. Kategorien prüfen</h2>
-
-      <div class="result-meta">
-        <span id="review-filename"></span>
-        <span id="review-language" class="badge"></span>
-      </div>
-
-      <p id="review-empty" class="hint hidden">Es wurden keine personenbezogenen Daten erkannt.</p>
-
-      <ul id="review-list" class="review-list"></ul>
-
-      <div class="review-actions">
-        <button type="button" id="finalize-btn" class="primary-btn">Anonymisierung anwenden</button>
-        <button type="button" id="review-restart-btn" class="link-btn">Neu starten</button>
-      </div>
-
-      <div id="finalize-loading" class="loading hidden">
-        <div class="progress-bar-track">
-          <div id="finalize-bar-fill" class="progress-bar-fill" style="width: 0%"></div>
-        </div>
-        <div class="progress-bar-meta">
-          <span id="finalize-stage-label">Wird vorbereitet&hellip;</span>
-          <span id="finalize-eta"></span>
-        </div>
-      </div>
-    </section>
-
-    <section id="result-card" class="card hidden" aria-labelledby="result-heading">
-      <div class="result-heading-row">
-        <h2 id="result-heading">Ergebnis</h2>
-        <button type="button" id="result-new-document-btn" class="secondary-btn">Neues Dokument</button>
-      </div>
-
-      <div id="pii-audit" class="pii-audit hidden">
-        <h3>Erkannte PII-Kategorien</h3>
-        <ul id="pii-audit-list" class="pii-audit-list"></ul>
-      </div>
-
-      <div class="result-meta">
-        <span id="result-filename"></span>
-        <span id="result-language" class="badge"></span>
-      </div>
-
-      <div class="result-previews">
-        <div id="result-transcript-wrap" class="result-preview-wrap hidden">
-          <h3>Transkript</h3>
-          <pre id="result-transcript" class="result-markdown"></pre>
-        </div>
-
-        <div id="result-summary-wrap" class="result-preview-wrap hidden">
-          <h3>Zusammenfassung</h3>
-          <pre id="result-summary" class="result-markdown"></pre>
-        </div>
-      </div>
-
-      <button type="button" id="find-replace-toggle" class="secondary-btn find-replace-toggle-btn"
-              aria-expanded="false" aria-controls="find-replace-panel">
-        Suchen &amp; Ersetzen
-      </button>
-
-      <div id="find-replace-panel" class="find-replace-panel hidden">
-        <p class="find-replace-intro">
-          Einzelne Begriffe korrigieren, die z.&nbsp;B. bei der Audio-Transkription falsch verstanden wurden.
-        </p>
-        <div class="find-replace-row">
-          <input type="text" id="find-replace-search" class="find-replace-input" placeholder="Suchen nach…">
-          <input type="text" id="find-replace-replacement" class="find-replace-input" placeholder="Ersetzen durch…">
-        </div>
-        <label class="find-replace-case">
-          <input type="checkbox" id="find-replace-case-toggle">
-          Groß-/Kleinschreibung beachten
-        </label>
-        <div class="find-replace-actions">
-          <button type="button" id="find-replace-one-btn" class="secondary-btn">Ersetzen</button>
-          <button type="button" id="find-replace-all-btn" class="primary-btn">Alle ersetzen</button>
-        </div>
-        <p id="find-replace-status" class="hint find-replace-status hidden"></p>
-      </div>
-
-      <div id="result-downloads" class="result-downloads"></div>
-    </section>
-
-   </div>
+    <div id="error-box" class="error-box hidden" role="alert">
+      <strong>Fehler:</strong>
+      <span id="error-text"></span>
+    </div>
 
   </main>
 
@@ -266,8 +294,8 @@
         <h3>So funktioniert der Ablauf</h3>
         <ol>
           <li><strong>Eingabe:</strong> Datei auswählen/hineinziehen oder Text aus der Zwischenablage einfügen.</li>
-          <li><strong>Analysieren:</strong> Die App durchsucht den Inhalt nach personenbezogenen Daten (PII) — es wird dabei noch <em>nichts</em> verändert oder gespeichert.</li>
-          <li><strong>Kategorien prüfen:</strong> Alle gefundenen Kategorien (z. B. Namen, E-Mail-Adressen, Orte) werden mit Beispielen angezeigt. Jede Kategorie kann einzeln abgewählt werden, um sie im Ergebnis sichtbar zu lassen.</li>
+          <li><strong>Optionen:</strong> Festlegen, was erkannt und wie es aufbereitet wird — dann „Analysieren" auslösen. Es wird dabei noch <em>nichts</em> verändert oder gespeichert.</li>
+          <li><strong>Kategorien prüfen:</strong> Jede gefundene Textstelle wird einzeln mit Kontext angezeigt. Jede einzelne Stelle — oder eine ganze Kategorie auf einmal — kann abgewählt werden, um sie im Ergebnis sichtbar zu lassen.</li>
           <li><strong>Anonymisierung anwenden:</strong> Erst jetzt wird der finale, anonymisierte Text erzeugt und als Datei gespeichert.</li>
         </ol>
       </section>
@@ -302,10 +330,12 @@
             Text, die Zusammenfassung eine kurze KI-generierte Übersicht davon. Beide werden als
             <strong>getrennte</strong> Markdown-Dateien gespeichert.
           </dd>
-          <dt>Kategorie abwählen</dt>
+          <dt>Einzelne Textstelle oder ganze Kategorie abwählen</dt>
           <dd>
-            Lässt eine erkannte Kategorie unangetastet im Ergebnistext stehen, statt sie zu schwärzen
-            — z. B. wenn Ortsangaben für den Zweck des Dokuments unproblematisch sind.
+            Lässt eine Textstelle (oder — per Kategorie-Checkbox — alle Stellen einer Kategorie auf
+            einmal) unangetastet im Ergebnistext stehen, statt sie zu schwärzen — z.&nbsp;B. wenn
+            eine einzelne Fundstelle falsch zugeordnet wurde, oder wenn Ortsangaben für den Zweck
+            des Dokuments unproblematisch sind.
           </dd>
           <dt>Schwärzen vs. Nummerieren vs. Pseudonymisieren (nur bei Namen)</dt>
           <dd>
@@ -360,22 +390,22 @@
           <dd>
             Wird für den Tiefencheck und die Zusammenfassung gebraucht. Falls nicht installiert:
             <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer">ollama.com/download</a>,
-            danach das gewählte Modell laden (z. B. <code>ollama pull gemma4:12b</code>). Welches Modell
-            verwendet wird, lässt sich unten im Systemstatus per Dropdown umstellen — kleinere Modelle
+            danach das gewählte Modell laden (z. B. <code>ollama pull gemma4:e4b</code>). Welches Modell
+            verwendet wird, lässt sich oben im Systemstatus per Dropdown umstellen — kleinere Modelle
             brauchen weniger RAM/VRAM, größere liefern bessere Ergebnisse.
           </dd>
           <dt>faster-whisper (Spracherkennung)</dt>
           <dd>
             Wird nur für Audio-Dateien gebraucht und lädt das gewählte Modell beim ersten Gebrauch
             automatisch herunter — danach läuft es offline. Kein System-<code>ffmpeg</code> nötig, das
-            ist bereits enthalten. Die Modellgröße lässt sich unten im Systemstatus per Dropdown
+            ist bereits enthalten. Die Modellgröße lässt sich oben im Systemstatus per Dropdown
             umstellen — kleinere Größen brauchen weniger RAM, größere liefern bessere Ergebnisse.
           </dd>
           <dt>spaCy-Sprachmodelle</dt>
           <dd>Werden für die Grunderkennung (Namen, Orte, …) gebraucht, einmalig zu installieren.</dd>
         </dl>
         <p>
-          Der Bereich <strong>„Systemstatus“</strong> unten in der App zeigt an, was davon fehlt, und
+          Der Bereich <strong>„Systemstatus"</strong> oben in der App zeigt an, was davon fehlt, und
           kann fehlende Modelle direkt nachladen. Nur eine bereits vorausgesetzte Ollama-Installation
           muss manuell eingerichtet werden.
         </p>
@@ -386,12 +416,44 @@
         <ul class="help-privacy-list">
           <li><strong>Alles läuft lokal.</strong> Es gibt keine Cloud-Anbindung und keinen externen API-Aufruf — weder für die Dokumentenanalyse noch für die KI-Auswertung.</li>
           <li><strong>Rohdaten verlassen nie diesen Rechner.</strong> Hochgeladene Dateien werden nur temporär auf der Festplatte zwischengespeichert und nach der Analyse sofort gelöscht.</li>
-          <li><strong>Das Sprachmodell (Ollama) läuft ausschließlich lokal auf diesem Rechner — nie über eine Cloud oder das Internet.</strong> Der erste Tiefencheck-Durchlauf sieht dafür bewusst den Originaltext (siehe „Tiefencheck“ oben), damit er Spitznamen und Rollenbezeichnungen korrekt der richtigen Person zuordnen kann; ein zweiter Durchlauf nach der Anonymisierung sowie die Zusammenfassung sehen dagegen den bereits fertig anonymisierten Text. Ist die Anonymisierung bewusst ausgeschaltet, erhält auch die Zusammenfassung den Originaltext — auch dann bleibt die Verarbeitung vollständig lokal.</li>
+          <li><strong>Das Sprachmodell (Ollama) läuft ausschließlich lokal auf diesem Rechner — nie über eine Cloud oder das Internet.</strong> Der erste Tiefencheck-Durchlauf sieht dafür bewusst den Originaltext (siehe „Tiefencheck" oben), damit er Spitznamen und Rollenbezeichnungen korrekt der richtigen Person zuordnen kann; ein zweiter Durchlauf nach der Anonymisierung sowie die Zusammenfassung sehen dagegen den bereits fertig anonymisierten Text. Ist die Anonymisierung bewusst ausgeschaltet, erhält auch die Zusammenfassung den Originaltext — auch dann bleibt die Verarbeitung vollständig lokal.</li>
           <li><strong>Ergebnisdateien liegen lokal.</strong> Anonymisierte Dokumente werden in einem lokalen Ordner dieser App gespeichert und stehen nur auf diesem Rechner zur Verfügung.</li>
           <li><strong>Keine Analyse, kein Tracking.</strong> Diese App sammelt keine Nutzungsdaten und sendet nichts an Dritte.</li>
         </ul>
       </section>
 
+    </div>
+  </div>
+</div>
+
+<div id="status-modal" class="modal-overlay hidden">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="status-modal-heading">
+    <div class="modal-header">
+      <h2 id="status-modal-heading">Systemstatus</h2>
+      <button type="button" id="status-modal-close" class="modal-close" aria-label="Schließen">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="model-picker">
+        <label for="ollama-model-select">Ollama-Modell (Tiefencheck &amp; Zusammenfassung)</label>
+        <div class="model-picker-row">
+          <select id="ollama-model-select"></select>
+          <input type="text" id="ollama-model-custom" class="find-replace-input hidden" placeholder="z. B. llama3.1:8b">
+          <button type="button" id="ollama-model-apply" class="secondary-btn">Übernehmen</button>
+        </div>
+        <p id="ollama-model-status" class="model-picker-status"></p>
+      </div>
+      <div class="model-picker">
+        <label for="whisper-model-select">Whisper-Modellgröße (Audiotranskription)</label>
+        <div class="model-picker-row">
+          <select id="whisper-model-select"></select>
+          <input type="text" id="whisper-model-custom" class="find-replace-input hidden" placeholder="z. B. large-v3-turbo">
+          <button type="button" id="whisper-model-apply" class="secondary-btn">Übernehmen</button>
+        </div>
+        <p id="whisper-model-status" class="model-picker-status"></p>
+      </div>
+      <div id="status-loading" class="status-loading">Lade Systemstatus&hellip;</div>
+      <ul id="dependency-list" class="dependency-list"></ul>
     </div>
   </div>
 </div>

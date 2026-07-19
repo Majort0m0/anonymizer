@@ -15,11 +15,11 @@ def _app_data_dir() -> Path:
         return BASE_DIR
 
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Anonymizer"
+        return Path.home() / "Library" / "Application Support" / "AnonyMeister"
     elif sys.platform == "win32":
-        return Path(os.environ.get("APPDATA", Path.home())) / "Anonymizer"
+        return Path(os.environ.get("APPDATA", Path.home())) / "AnonyMeister"
     else:
-        return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "anonymizer"
+        return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "anonymeister"
 
 
 # Base directory for anything this app persists locally (generated output,
