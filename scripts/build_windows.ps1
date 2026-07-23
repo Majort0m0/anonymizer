@@ -40,8 +40,9 @@ if ($null -eq $iscc) {
     exit 0
 }
 
-Write-Host "==> Building installer with Inno Setup..."
-& $iscc.Source "scripts\anonymeister-installer.iss"
+$version = (python -c "from app.version import APP_VERSION; print(APP_VERSION)").Trim()
+Write-Host "==> Building installer with Inno Setup (version $version)..."
+& $iscc.Source "/DMyAppVersion=$version" "scripts\anonymeister-installer.iss"
 
 Write-Host ""
 Write-Host "Done: $distDir\AnonyMeister.exe and dist\AnonyMeister-Setup.exe"

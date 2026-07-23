@@ -135,6 +135,30 @@ body {
   white-space: nowrap;
 }
 
+.status-btn {
+  gap: 0.45rem;
+}
+.status-btn-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+.status-dot.status-green {
+  background: var(--success);
+}
+.status-dot.status-yellow {
+  background: var(--warning);
+}
+.status-dot.status-red {
+  background: var(--danger);
+}
+
 .subtitle {
   margin: 0.2rem 0 0;
   color: var(--text-muted);
@@ -1285,6 +1309,33 @@ body {
 .model-picker-status.error {
   color: var(--danger);
 }
+.model-picker-status.warning {
+  color: var(--warning);
+}
+
+.version-info {
+  margin-bottom: 1.1rem;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.version-info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+.version-info-label {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.version-info-value {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+.version-info .secondary-btn {
+  width: auto;
+}
 
 .status-loading {
   color: var(--text-muted);
@@ -1383,6 +1434,9 @@ body {
 }
 .app-footer p {
   margin: 0;
+}
+.app-footer .app-version {
+  opacity: 0.75;
 }
 .app-footer .license-note a {
   color: var(--text-muted);

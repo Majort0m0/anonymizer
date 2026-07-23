@@ -9,6 +9,13 @@ import sys
 
 from PyInstaller.utils.hooks import collect_all
 
+# SPECPATH is a name PyInstaller injects into this file's exec namespace
+# (the directory containing this .spec, i.e. the repo root) — inserted
+# explicitly rather than relying on sys.path already containing the CWD,
+# since that isn't guaranteed for however `pyinstaller` itself was invoked.
+sys.path.insert(0, SPECPATH)
+from app.version import APP_VERSION
+
 block_cipher = None
 
 datas = [("app/web/static", "app/web/static")]
@@ -105,7 +112,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "AnonyMeister",
             "CFBundleDisplayName": "AnonyMeister",
-            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleShortVersionString": APP_VERSION,
             "NSHighResolutionCapable": True,
         },
     )

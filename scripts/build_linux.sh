@@ -31,6 +31,8 @@ fi
 echo "==> Running PyInstaller..."
 pyinstaller --clean --noconfirm anonymeister.spec
 
+VERSION="$(python3 -c 'from app.version import APP_VERSION; print(APP_VERSION)')"
+
 DIST_DIR="dist/AnonyMeister"
 APPDIR="dist/AppDir"
 
@@ -61,6 +63,7 @@ Comment=Dokumente & Audio lokal anonymisieren
 Exec=AnonyMeister
 Icon=anonymeister
 Categories=Office;Utility;
+X-AppImage-Version=$VERSION
 EOF
 cp "$APPDIR/usr/share/applications/anonymeister.desktop" "$APPDIR/anonymeister.desktop"
 

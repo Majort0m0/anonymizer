@@ -41,9 +41,16 @@ No linter/formatter is configured yet.
 Local-only desktop app: ingest a document or audio file → anonymize PII → optionally
 summarize → render a formatted markdown file. "Local-only" is a hard privacy
 requirement, not a preference — no stage may send raw (non-anonymized) content to a
-network API; the only network-capable dependency is Ollama, and it is only ever
-called with already-anonymized text (see the privacy-invariant docstrings in
-`app/pipeline/deep_check.py`, `app/pipeline/summarize.py`, and `app/pipeline/pipeline.py`).
+network API; the only network-capable dependency involved in *document processing*
+is Ollama, and it is only ever called with already-anonymized text (see the
+privacy-invariant docstrings in `app/pipeline/deep_check.py`,
+`app/pipeline/summarize.py`, and `app/pipeline/pipeline.py`). `app/update_check.py`
+is a narrow, deliberate exception to "the only network-capable dependency" framing
+above — it's a different concern entirely (checking the app's own version against
+GitHub Releases via `GET /api/update-check`, automatically once on load and again on
+demand from the Systemstatus panel's "Auf Updates prüfen" button), never sees any
+document content, and is documented as such in its own module docstring and in
+`index.html`'s Datenschutz section.
 
 **Process shape**: `app/main.py` starts the FastAPI app (`app/server.py`) on a
 background thread and opens it in a native `pywebview` window — no Electron/Node,

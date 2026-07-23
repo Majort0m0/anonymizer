@@ -13,7 +13,11 @@
     <div class="app-header-top">
       <h1>AnonyMeister</h1>
       <div class="header-actions">
-        <button type="button" id="status-open-btn" class="secondary-btn">Systemstatus</button>
+        <button type="button" id="status-open-btn" class="secondary-btn status-btn">
+          <span class="status-btn-icon" aria-hidden="true">&#9881;</span>
+          Systemstatus
+          <span id="status-btn-dot" class="status-dot" aria-hidden="true"></span>
+        </button>
         <button type="button" id="help-btn" class="secondary-btn">Anleitung &amp; Datenschutz</button>
       </div>
     </div>
@@ -273,6 +277,7 @@
 
   <footer class="app-footer">
     <p>Alle Daten werden ausschließlich lokal verarbeitet.</p>
+    <p class="app-version">AnonyMeister <span id="footer-version">&hellip;</span></p>
     <p class="license-note">
       CC BY-NC
       <a href="https://lernsachen.blog" target="_blank" rel="noopener noreferrer">Lernsachen.blog</a>
@@ -419,6 +424,7 @@
           <li><strong>Das Sprachmodell (Ollama) läuft ausschließlich lokal auf diesem Rechner — nie über eine Cloud oder das Internet.</strong> Der erste Tiefencheck-Durchlauf sieht dafür bewusst den Originaltext (siehe „Tiefencheck" oben), damit er Spitznamen und Rollenbezeichnungen korrekt der richtigen Person zuordnen kann; ein zweiter Durchlauf nach der Anonymisierung sowie die Zusammenfassung sehen dagegen den bereits fertig anonymisierten Text. Ist die Anonymisierung bewusst ausgeschaltet, erhält auch die Zusammenfassung den Originaltext — auch dann bleibt die Verarbeitung vollständig lokal.</li>
           <li><strong>Ergebnisdateien liegen lokal.</strong> Anonymisierte Dokumente werden in einem lokalen Ordner dieser App gespeichert und stehen nur auf diesem Rechner zur Verfügung.</li>
           <li><strong>Keine Analyse, kein Tracking.</strong> Diese App sammelt keine Nutzungsdaten und sendet nichts an Dritte.</li>
+          <li><strong>Auf Updates prüfen ist die einzige externe Verbindung.</strong> Der Systemstatus-Bereich fragt beim Start automatisch (und jederzeit erneut per Klick) bei GitHub ab, ob eine neuere Version verfügbar ist. Dabei werden ausschließlich die installierte Versionsnummer und die öffentliche GitHub-Release-API abgefragt — niemals Dokumenteninhalte, Dateinamen oder sonstige Daten.</li>
         </ul>
       </section>
 
@@ -434,6 +440,14 @@
     </div>
 
     <div class="modal-body">
+      <div class="version-info">
+        <div class="version-info-row">
+          <span class="version-info-label">Installierte Version</span>
+          <span id="version-current" class="version-info-value">&hellip;</span>
+        </div>
+        <button type="button" id="update-check-btn" class="secondary-btn">Auf Updates prüfen</button>
+        <p id="update-check-status" class="model-picker-status"></p>
+      </div>
       <div class="model-picker">
         <label for="ollama-model-select">Ollama-Modell (Tiefencheck &amp; Zusammenfassung)</label>
         <div class="model-picker-row">

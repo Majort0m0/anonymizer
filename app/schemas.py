@@ -174,3 +174,26 @@ class DependencyStatus(BaseModel):
     available: bool
     detail: str = ""
     install_hint: str = ""
+
+
+class VersionInfo(BaseModel):
+    """Backs `GET /api/version` — the installed app version, read from
+    `app.version.APP_VERSION`. Deliberately separate from
+    `UpdateCheckResult` below: this is purely local (no network call), so
+    the frontend can populate it instantly on load instead of waiting on
+    the slower, network-dependent update check."""
+
+    version: str
+
+
+class UpdateCheckResult(BaseModel):
+    """Backs `GET /api/update-check` — compares `APP_VERSION` against the
+    latest GitHub release tag. `latest_version`/`release_url` are None and
+    `error` is set when the check itself failed (e.g. no network); this is
+    distinct from a successful check that simply found no newer release."""
+
+    current_version: str
+    latest_version: Optional[str] = None
+    update_available: bool = False
+    release_url: Optional[str] = None
+    error: Optional[str] = None

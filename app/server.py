@@ -73,6 +73,8 @@ from app.schemas import (
     PipelineOptions,
     PipelineResult,
     ReplaceTextRequest,
+    UpdateCheckResult,
+    VersionInfo,
 )
 from app.settings import (
     get_ollama_model,
@@ -80,6 +82,8 @@ from app.settings import (
     set_ollama_model,
     set_whisper_model_size,
 )
+from app.update_check import check_for_update
+from app.version import APP_VERSION
 
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 
@@ -715,6 +719,16 @@ def replace_text_route(payload: ReplaceTextRequest) -> JSONResponse:
         return JSONResponse(result.model_dump())
     except Exception as exc:
         return JSONResponse(status_code=400, content={"error": str(exc)})
+
+
+@app.get("/api/version")
+def get_version() -> dict:
+    return VersionInfo(version=APP_VERSION).model_dump()
+
+
+@app.get("/api/update-check")
+def get_update_check(force: bool = False) -> dict:
+    return check_for_update(force=force).model_dump()
 
 
 @app.get("/api/dependencies")

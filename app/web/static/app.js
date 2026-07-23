@@ -996,12 +996,153 @@ resultNewDocumentBtn.addEventListener("click", resetToInputPhase);
 // --- System status ------------------------------------------------------------
 
 const statusOpenBtn = document.getElementById("status-open-btn");
+const statusBtnDot = document.getElementById("status-btn-dot");
 const statusModal = document.getElementById("status-modal");
 const statusModalClose = document.getElementById("status-modal-close");
 const statusLoading = document.getElementById("status-loading");
 const dependencyList = document.getElementById("dependency-list");
+const footerVersionEl = document.getElementById("footer-version");
+const versionCurrentEl = document.getElementById("version-current");
+const updateCheckBtn = document.getElementById("update-check-btn");
+const updateCheckStatusEl = document.getElementById("update-check-status");
 
 const MODEL_PICKER_CUSTOM_VALUE = "__custom__";
+
+// --- Version + update check + status badge --------------------------------
+//
+// The Systemstatus button's traffic-light dot reflects two independent
+// signals: the dependency checks below (spaCy models missing -> red, since
+// PII detection — this app's whole purpose — cannot run at all without
+// them; Ollama/its model missing -> yellow, since only deep-check/summary
+// degrade, base anonymization still works) and whether a newer release is
+// available (-> yellow). Both are fetched once automatically on page load
+// (see the init section at the bottom of this file) so the badge is
+// accurate before the user ever opens the modal, not just after.
+let latestDependencyStatuses = [];
+let latestUpdateCheck = null;
+// Whether /api/dependencies has ever completed successfully — distinct from
+// `latestDependencyStatuses` being merely empty. Without this, a failed or
+// errored dependency fetch (transient network hiccup, server still warming
+// up) left `latestDependencyStatuses` at its initial `[]` and
+// computeStatusLevel() read that as "nothing missing" -> a false green
+// badge claiming everything is fine when the check never actually ran (the
+// modal's own "Systemstatus konnte nicht geladen werden." error is no help
+// here, since the whole point of the on-load badge is that most users
+// never open the modal at all).
+let dependencyStatusKnown = false;
+
+// Mirrors app/pipeline/setup_check.py's own "spaCy model " name-prefix
+// convention (see attempt_auto_install()) rather than inventing a second
+// way to tell dependency kinds apart.
+function isCriticalDependency(status) {
+  return status.name.startsWith("spaCy model ");
+}
+
+function computeStatusLevel(statuses, updateCheck, depsKnown) {
+  if (!depsKnown) return "yellow";
+  let hasCriticalMissing = false;
+  let hasNonCriticalMissing = false;
+  for (const status of statuses) {
+    if (status.available) continue;
+    if (isCriticalDependency(status)) {
+      hasCriticalMissing = true;
+    } else {
+      hasNonCriticalMissing = true;
+    }
+  }
+  if (hasCriticalMissing) return "red";
+  if (hasNonCriticalMissing || (updateCheck && updateCheck.update_available)) return "yellow";
+  return "green";
+}
+
+const STATUS_BADGE_LABELS = {
+  green: "Systemstatus: alles bereit",
+  yellow: "Systemstatus: eine Option fehlt, konnte nicht geprüft werden oder ein Update ist verfügbar",
+  red: "Systemstatus: eine für den Betrieb wichtige Komponente fehlt",
+};
+
+function renderStatusBadge(level) {
+  statusBtnDot.classList.remove("status-green", "status-yellow", "status-red");
+  statusBtnDot.classList.add(`status-${level}`);
+  const label = STATUS_BADGE_LABELS[level] || STATUS_BADGE_LABELS.green;
+  statusOpenBtn.setAttribute("aria-label", label);
+  statusOpenBtn.title = label;
+}
+
+function refreshStatusBadge() {
+  renderStatusBadge(computeStatusLevel(latestDependencyStatuses, latestUpdateCheck, dependencyStatusKnown));
+}
+
+async function loadVersion() {
+  try {
+    const response = await fetch("/api/version");
+    if (!response.ok) return;
+    const data = await response.json();
+    footerVersionEl.textContent = `v${data.version}`;
+    versionCurrentEl.textContent = data.version;
+  } catch (err) {
+    // Footer/modal just keep their placeholder text if this fails.
+  }
+}
+
+function renderUpdateCheck(result) {
+  if (!result) return;
+  versionCurrentEl.textContent = result.current_version;
+  updateCheckStatusEl.innerHTML = "";
+  if (result.error) {
+    updateCheckStatusEl.textContent = result.error;
+    updateCheckStatusEl.className = "model-picker-status error";
+  } else if (result.update_available) {
+    updateCheckStatusEl.textContent = `Neue Version verfügbar: ${result.latest_version}`;
+    updateCheckStatusEl.className = "model-picker-status warning";
+    if (result.release_url) {
+      const link = document.createElement("a");
+      link.href = result.release_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "Release ansehen";
+      updateCheckStatusEl.append(" ", link);
+    }
+  } else if (result.latest_version) {
+    updateCheckStatusEl.textContent = "Sie verwenden die aktuellste Version.";
+    updateCheckStatusEl.className = "model-picker-status success";
+  } else {
+    updateCheckStatusEl.textContent = "";
+    updateCheckStatusEl.className = "model-picker-status";
+  }
+}
+
+async function runUpdateCheck(force) {
+  try {
+    const response = await fetch(`/api/update-check${force ? "?force=true" : ""}`);
+    if (!response.ok) return null;
+    const result = await response.json();
+    latestUpdateCheck = result;
+    renderUpdateCheck(result);
+    refreshStatusBadge();
+    return result;
+  } catch (err) {
+    return null;
+  }
+}
+
+updateCheckBtn.addEventListener("click", async () => {
+  updateCheckBtn.disabled = true;
+  updateCheckStatusEl.innerHTML = "";
+  updateCheckStatusEl.textContent = "Wird geprüft…";
+  updateCheckStatusEl.className = "model-picker-status";
+  const result = await runUpdateCheck(true);
+  if (!result) {
+    // runUpdateCheck() only returns null on a non-OK response or a thrown
+    // fetch error (check_for_update() itself always responds 200 with an
+    // `error` field, so this is the local-request-failed case, not a
+    // GitHub-side failure) — without this, "Wird geprüft…" would be left
+    // showing forever instead of an explicit failure message.
+    updateCheckStatusEl.textContent = "Update-Prüfung fehlgeschlagen: Verbindung zum Server nicht möglich.";
+    updateCheckStatusEl.className = "model-picker-status error";
+  }
+  updateCheckBtn.disabled = false;
+});
 
 function renderDependencies(statuses) {
   dependencyList.innerHTML = "";
@@ -1058,13 +1199,20 @@ async function loadDependencies() {
     const response = await fetch("/api/dependencies");
     if (!response.ok) {
       statusLoading.textContent = "Systemstatus konnte nicht geladen werden.";
+      dependencyStatusKnown = false;
+      refreshStatusBadge();
       return;
     }
     const statuses = await response.json();
     statusLoading.classList.add("hidden");
+    latestDependencyStatuses = statuses;
+    dependencyStatusKnown = true;
+    refreshStatusBadge();
     renderDependencies(statuses);
   } catch (err) {
     statusLoading.textContent = "Systemstatus konnte nicht geladen werden.";
+    dependencyStatusKnown = false;
+    refreshStatusBadge();
   }
 }
 
@@ -1199,6 +1347,14 @@ function openStatusModal() {
   loadDependencies();
   ollamaModelPicker.load();
   whisperModelPicker.load();
+  // Show whatever the automatic on-load check already found immediately
+  // (no need to wait on a fresh network round trip just to open the
+  // panel); the "Auf Updates prüfen" button still forces a fresh one.
+  if (latestUpdateCheck) {
+    renderUpdateCheck(latestUpdateCheck);
+  } else {
+    runUpdateCheck(false);
+  }
 }
 
 function closeStatusModal() {
@@ -1247,3 +1403,12 @@ document.addEventListener("keydown", (event) => {
 updateStep1Readiness();
 renderStepBar();
 showPanel(1);
+
+// Populate the footer version immediately (purely local, no network), and
+// run the dependency + update checks in the background so the Systemstatus
+// button's traffic-light badge is already correct before the user opens
+// the panel — see the "Version + update check + status badge" section
+// above for why both feed the same badge.
+loadVersion();
+loadDependencies();
+runUpdateCheck(false);

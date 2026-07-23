@@ -1,13 +1,20 @@
 ; Inno Setup script for the AnonyMeister Windows installer.
-; Compile with: ISCC.exe scripts\anonymeister-installer.iss
-; (run from the repo root, or adjust the relative paths below if not).
+; Compile via scripts\build_windows.ps1, which passes the real app version
+; through as /DMyAppVersion=X.Y.Z (read from app/version.py — the single
+; source of truth also used by anonymeister.spec's macOS bundle metadata).
+; Compiling this file directly (ISCC.exe scripts\anonymeister-installer.iss,
+; skipping build_windows.ps1) falls back to "0.0.0-dev" below, so a
+; version-less manual invocation is conspicuous rather than silently
+; minting another stale "1.0.0" like this installer used to.
 ;
 ; NOTE: written to match scripts\build_windows.ps1's PyInstaller output
 ; (dist\AnonyMeister\AnonyMeister.exe) but not verified on an actual Windows
 ; machine — no Windows environment was available to test the compile step.
 
 #define MyAppName "AnonyMeister"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0-dev"
+#endif
 #define MyAppPublisher "Lernsachen.blog"
 #define MyAppURL "https://lernsachen.blog"
 #define MyAppExeName "AnonyMeister.exe"
